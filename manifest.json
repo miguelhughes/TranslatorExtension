@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Brilliant.org Translator",
+  "description": "Translates text content from Brilliant.org courses to Spanish using the OpenAI API.",
+  "version": "1.0",
+  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      // "matches": ["https://*.brilliant.org/*"],
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
