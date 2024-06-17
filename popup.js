@@ -4,17 +4,15 @@ document.addEventListener('DOMContentLoaded', (event) => {
             chrome.scripting.executeScript({
                 target: { tabId: tabs[0].id },
                 func: async () => {
-                    var htmlString = document.documentElement.innerHTML;
 
                     const textStrings = [];
 
                     //TODO: exclude elements that are not visible
-                    //TODO: also exclude elements that are just numbers or pound signs, stuff like that.
                     function traverseNode(node, nodeAction, index = 0) {
                         // If it's a text node, run the action
                         if (node.nodeType === Node.TEXT_NODE) {
                             const text = node.textContent;
-                            if (text.trim() !== '') {
+                            if (text.trim() !== '' && /[A-Za-z]/.test(text)) { // Only process text nodes that are not empty and contain letters (to exclude digit only or symbol only entries.)
                                 nodeAction(node, text, index);
                                 index++;
                             }
@@ -28,9 +26,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
 
                     // Extract text strings
-                    const container = document.createElement('div');
-                    container.innerHTML = htmlString;
-                    traverseNode(container, (node, text, index) => {
+                    traverseNode(document.documentElement, (node, text, index) => {
                         textStrings[index] = text;
                     });
 
@@ -40,14 +36,17 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/ si se tradujo, al apretar continue se rompe todo, entra en un loop asqueroso
                     // en https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/, después de traducir, al cambiar, la página queda en blanco.
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/1/, los dígitos aparecen 3 veces.
-
-                    // problemas actuales: continuar acá. ver si hacer mas rápido o solucionar los problemas de abajo.
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ a veces se rompe, pero no si se carga directamente, solo si se viene de otr apágina traducida
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ empezar de nuevo/continuar aparecen en el lugar incorrecto. también en la descripción del problema, #555 pasa a ser 55
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
+
+                    // problemas actuales: continuar acá. estoy probando versiones más rápidas del prompt. 3 y 4 estan ahí, pero hay que modificar el código. ver si seguir con eso solucionar los problemas de abajo.
+                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
+                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
+                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
+                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ a veces se rompe, pero no si se carga directamente, solo si se viene de otr apágina traducida
                     // tampoco se traducen las ayudas del costado y eso.
+
+                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/ el orden de la traducción es incorrecto dado que se traducen los elementos html uno a uno.
                     
                     function toIndexedObject(array) {
                         const indexedObject = array.reduce((obj, text, index) => {
