@@ -7,8 +7,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                     const textStrings = [];
 
-                    //TODO: exclude elements that are not visible
                     function traverseNode(node, nodeAction, index = 0) {
+                        if (!isNodeVisible(node)) {
+                            return index;
+                        }
+
                         // If it's a text node, run the action
                         if (node.nodeType === Node.TEXT_NODE) {
                             const text = node.textContent;
@@ -25,6 +28,15 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         return index;
                     }
 
+                    function isNodeVisible(node) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) {
+                            return true; // we can't use the computed style function below, so we default to the safe side.
+                        }
+                        
+                        const style = window.getComputedStyle(node);
+                        return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
+                    }
+
                     // Extract text strings
                     traverseNode(document.documentElement, (node, text, index) => {
                         textStrings[index] = text;
@@ -39,7 +51,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ empezar de nuevo/continuar aparecen en el lugar incorrecto. también en la descripción del problema, #555 pasa a ser 55
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
 
-                    // problemas actuales: continuar acá. estoy probando versiones más rápidas del prompt. 3 y 4 estan ahí, pero hay que modificar el código. ver si seguir con eso solucionar los problemas de abajo.
+                    // problemas actuales: 
                     // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
                     // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
@@ -47,7 +59,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // tampoco se traducen las ayudas del costado y eso.
 
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/ el orden de la traducción es incorrecto dado que se traducen los elementos html uno a uno.
-                    
+                    //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, no mantiene los espacios, "en el pasillo". agregar una función para reclamar los espacios. 
+                    //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, si se mueven los muñecos y luego de traduce; no se traducen "aisle, center, window" porque no se veían.
+
                     function toIndexedObject(array) {
                         const indexedObject = array.reduce((obj, text, index) => {
                             obj[index] = text;
