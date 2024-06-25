@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 nodeAction(node, text, index);
                                 index++;
                             }
-                        } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
+                        } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE' && !node.hasAttribute('data-translated')) {
                             // If it's an element node, recursively traverse its child nodes
                             for (let i = 0; i < node.childNodes.length; i++) {
                                 index = traverseNode(node.childNodes[i], nodeAction, index);
@@ -120,6 +120,10 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     traverseNode(document.documentElement, (node, text, index) => {
                         const translatedText = translatedObject[index] || text;
                         node.textContent = translatedText;
+                        const parent = node.parentElement;
+                        if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
+                            parent.setAttribute('data-translated', 'true');
+                        }
                     });
                 }
             });
