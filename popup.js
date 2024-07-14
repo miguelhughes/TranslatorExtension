@@ -5,31 +5,45 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 target: { tabId: tabs[0].id },
                 func: async () => {
 
-                    const textStrings = [];
 
-                    // Extract text strings
-                    traverseNode(document.documentElement, (node, text, index) => {
-                        textStrings[index] = text;
-                    });
+                    //on start, translate the whole visible page.
+                    await translateContents(document.documentElement); 
+                    
+                    //translation complete. 
 
-                    console.log("starting translation...");
-                    const translatedTexts = await translateText(textStrings);
-                    console.log("translation finished");
 
-                    const translatedObject = JSON.parse(translatedTexts)
+                    // Functions below.
+                    async function translateContents(nodeToTranslate)
+                    {
+                        const textStrings = [];
+                            
+                        // Extract text strings
+                        traverseNode(nodeToTranslate, (node, text, index) => {
+                            textStrings[index] = text;
+                        });
 
-                    // Replace text nodes
-                    traverseNode(document.documentElement, (node, text, index) => {
-                        const translatedText = translatedObject[index] || text;
-                        node.textContent = translatedText;
-                        const parent = node.parentElement;
-                        if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
-                            parent.setAttribute('data-translated', 'true');
+                        if (textStrings.length === 0) {
+                            console.log("no strings to translate, translation skipped");
+                            return;
                         }
-                    });
 
-                    //translation complete. Functions below.
-
+                        console.log("starting translation...");
+                        const translatedTexts = await translateText(textStrings);
+                        console.log("translation finished");
+                        
+                        const translatedObject = JSON.parse(translatedTexts)
+                        
+                        // Replace text nodes
+                        traverseNode(nodeToTranslate, (node, text, index) => {
+                            const translatedText = translatedObject[index] || text;
+                            node.textContent = translatedText;
+                            const parent = node.parentElement;
+                            if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
+                                parent.setAttribute('data-translated', 'true');
+                            }
+                        });
+                    }
+                    
                     function traverseNode(node, nodeAction, index = 0) {
                         if (!isNodeVisible(node)) {
                             return index;
