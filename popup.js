@@ -10,7 +10,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     await translateContents(document.documentElement); 
                     
                     //translation complete. 
-
+                    // Set up observer for new content
+                    const observer = new MutationObserver(translateNewContent);
+                    startMutationObserver();
 
                     // Functions below.
                     async function translateContents(nodeToTranslate)
@@ -31,7 +33,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         const translatedTexts = await translateText(textStrings);
                         console.log("translation finished");
                         
-                        const translatedObject = JSON.parse(translatedTexts)
+                        const translatedObject = parseTranslationResponse(textStrings, translatedTexts);
                         
                         // Replace text nodes
                         traverseNode(nodeToTranslate, (node, text, index) => {
@@ -42,6 +44,30 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 parent.setAttribute('data-translated', 'true');
                             }
                         });
+                    }
+
+                    async function translateNewContent(mutations) {
+
+                        stopMutationObserver();
+                        for (let mutation of mutations) {
+                            if (mutation.type === 'childList') {
+                                // for (let node of mutation.addedNodes) {
+                                //     await translateContents(node);
+                                // }
+                            } else if (mutation.type === 'characterData') {
+                                const parent = mutation.target.parentElement;
+                                if (parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
+                                    parent.removeAttribute('data-translated');
+                                }
+                                // if (mutation.oldValue != mutation.target.textContent){ //apparently sometimes this mutation get's called but the text is the same, so no point in translating
+                                    // await translateContents(mutation.target);
+                                // }
+                            }
+                        }
+
+                        // await translateContents(document.documentElement);
+                        startMutationObserver();
+
                     }
                     
                     function traverseNode(node, nodeAction, index = 0) {
@@ -98,7 +124,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 'Authorization': `Bearer ${apiKey}`,
                             },
                             body: JSON.stringify({
-                                model: "gpt-4o",
+                                model: "gpt-4o-mini",
                                 messages: [
                                     {
                                         role: "system",
@@ -124,6 +150,37 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                         return content;
                     };
+
+                    function startMutationObserver(){
+
+                        observer.observe(document.body, {
+                            childList: true,
+                            subtree: true,
+                            characterData: true,
+                            characterDataOldValue: true
+                        });
+                    }
+
+                    function stopMutationObserver() {
+                        observer.disconnect();
+                    }
+
+                    function parseTranslationResponse(originalTexts, translatedTexts) {
+                        var translatedObject;
+                        try {
+                            translatedObject = JSON.parse(translatedTexts)
+                        } catch (ex) {
+                            // sometimes if the request has just one entity, it doesn't return an array, but a string. In that case, we need to convert it to an array.
+                            if (originalTexts.length == 1) {
+                                translatedObject = [translatedTexts];
+                            }
+                            else
+                            {
+                                throw ex;
+                            }
+                        }
+                        return translatedObject;
+                    }
                 }
             });
         });
@@ -138,6 +195,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/1/, los dígitos aparecen 3 veces.
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ empezar de nuevo/continuar aparecen en el lugar incorrecto. también en la descripción del problema, #555 pasa a ser 55
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
+// https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/4/ after adding the "data translated" attribute, when navigating back & forth on the top arrows, some items retain their attributes and aren't translated again. 
 
 // problemas actuales: 
 // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
@@ -149,5 +207,3 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/ el orden de la traducción es incorrecto dado que se traducen los elementos html uno a uno.
 //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, no mantiene los espacios, "en el pasillo". agregar una función para reclamar los espacios. 
 //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, si se mueven los muñecos y luego de traduce; no se traducen "aisle, center, window" porque no se veían.
-
-//after adding the "data translated" attribute, when navigating back & forth on the top arrows, some items retain their attributes and aren't translated again. https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/4/
