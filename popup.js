@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 target: { tabId: tabs[0].id },
                 func: async () => {
 
+                    addTranslationStyle();
 
                     //on start, translate the whole visible page.
                     await translateContents(document.documentElement); 
@@ -22,6 +23,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         // Extract text strings
                         traverseNode(nodeToTranslate, (node, text, index) => {
                             textStrings[index] = text;
+                            if (node.parentElement && node.parentElement.nodeType === Node.ELEMENT_NODE) {
+                                node.parentElement.classList.add('translating');
+                            }
                         });
 
                         if (textStrings.length === 0) {
@@ -42,6 +46,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                             const parent = node.parentElement;
                             if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
                                 parent.setAttribute('data-translated', 'true');
+                                node.parentElement.classList.remove('translating');
                             }
                         });
                     }
@@ -180,6 +185,40 @@ document.addEventListener('DOMContentLoaded', (event) => {
                             }
                         }
                         return translatedObject;
+                    }
+
+                    function addTranslationStyle() {
+                        if (document.querySelector('style[data-translation-style]')) return;
+
+                        const loadingStyle = `
+                            @keyframes translateWave {
+                                0% {
+                                    background-position: 200% 50%;
+                                }
+                                100% {
+                                    background-position: 0% 50%;
+                                }
+                            }
+
+                            .translating {
+                                background-image: linear-gradient(
+                                    90deg,
+                                    rgba(41, 204, 87, 0.1) 0%,
+                                    rgba(41, 204, 87, 0.2) 25%,
+                                    rgba(41, 204, 87, 0.1) 50%,
+                                    rgba(41, 204, 87, 0.2) 75%,
+                                    rgba(41, 204, 87, 0.1) 100%
+                                );
+                                background-size: 200% 100%;
+                                animation: translateWave 1.5s linear infinite;
+                                transition: background 0.3s ease;
+                            }
+                        `;
+
+                        const styleElement = document.createElement('style');
+                        styleElement.textContent = loadingStyle;
+                        styleElement.setAttribute('data-translation-style', 'true');
+                        document.head.appendChild(styleElement);
                     }
                 }
             });
