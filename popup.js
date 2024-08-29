@@ -12,8 +12,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     
                     //translation complete. 
                     // Set up observer for new content
-                    const observer = new MutationObserver(translateNewContent);
-                    startMutationObserver();
+                    //const observer = new MutationObserver(translateNewContent);
+                    //startMutationObserver();
 
                     // Functions below.
                     async function translateContents(nodeToTranslate)
@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                             const parent = node.parentElement;
                             if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
                                 parent.setAttribute('data-translated', 'true');
-                                node.parentElement.classList.remove('translating');
+                                parent.classList.remove('translating');
                             }
                         });
                     }
@@ -188,7 +188,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
 
                     function addTranslationStyle() {
-                        if (document.querySelector('style[data-translation-style]')) return;
+                        if (document.querySelector('style[data-translation-style]'))
+                            return;
 
                         const loadingStyle = `
                             @keyframes translateWave {
@@ -236,13 +237,17 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
 // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/4/ after adding the "data translated" attribute, when navigating back & forth on the top arrows, some items retain their attributes and aren't translated again. 
 
-// problemas actuales: 
 // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
-// https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
-// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
 // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ a veces se rompe, pero no si se carga directamente, solo si se viene de otr apágina traducida
 // tampoco se traducen las ayudas del costado y eso.
 
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/ el orden de la traducción es incorrecto dado que se traducen los elementos html uno a uno.
 //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, no mantiene los espacios, "en el pasillo". agregar una función para reclamar los espacios. 
 //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, si se mueven los muñecos y luego de traduce; no se traducen "aisle, center, window" porque no se veían.
+
+// TODO: if translated, hook to the navigation events (or at least changes in the url), and trigger translate automatically.
+// current issues:
+// https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
+// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
+
+// ver este, lo probé con tommy no nandaba del todo bien. puede ser lo de arriba. https://brilliant.org/courses/logic-deduction/introduction-68/practice/logic_truth-seeking_practice-v1-0-set_one/
