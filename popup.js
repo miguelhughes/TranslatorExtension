@@ -140,6 +140,43 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         return content;
                     }
                     
+                    async function convertSvgToImage(svgUrl) {
+                        console.log('converting SVG with url: ' + svgUrl + ' to png');
+                        // Create a new Image object
+                        const img = new Image();
+                        img.crossOrigin = "anonymous";  // Enable CORS if the SVG is from another domain
+                        
+                        // Create canvas
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        
+                        // Return a promise that resolves with the base64 data URL
+                        return new Promise((resolve, reject) => {
+                            img.onload = () => {
+                                // Set canvas dimensions to match the image
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                
+                                // Draw the image onto the canvas
+                                ctx.drawImage(img, 0, 0);
+                                
+                                // Convert to base64 data URL
+                                try {
+                                    const dataUrl = canvas.toDataURL('image/png');
+                                    resolve(dataUrl);
+                                } catch (error) {
+                                    reject(error);
+                                }
+                            };
+                            
+                            img.onerror = (error) => {
+                                reject(error);
+                            };
+                            
+                            // Load the SVG
+                            img.src = svgUrl;
+                        });
+                    }
                     
                     // handle image translation
                     async function handleImages(node) {
@@ -150,7 +187,20 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 img.classList.add('translating');
                                 let success;
                                 try {
-                                    const imageTexts = await extractAndTranslateTextFromImage(img.src);
+                                    let imageUrl = img.src;
+                                    
+                                    // Check if the image is an SVG, considering that there might be querystrings after the .svg extension
+                                    if (imageUrl.toLowerCase().endsWith('.svg')|| imageUrl.toLowerCase().includes('.svg?')) {
+                                    try {
+                                            imageUrl = await convertSvgToImage(img.src);
+                                            console.log('Successfully converted SVG to PNG');
+                                        } catch (error) {
+                                            console.error('Failed to convert SVG:', error);
+                                            continue; // Skip this image if conversion fails
+                                        }
+                                    }
+                                    
+                                    const imageTexts = await extractAndTranslateTextFromImage(imageUrl);
                                     if (imageTexts && Object.keys(imageTexts).length > 0) {
                                         createImageTooltip(img, imageTexts);
                                     }
@@ -371,4 +421,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
 
 // ver este, lo probé con tommy no nandaba del todo bien. puede ser lo de arriba. https://brilliant.org/courses/logic-deduction/introduction-68/practice/logic_truth-seeking_practice-v1-0-set_one/
-// some SVGs aren't supported. https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/ and also the one with the knights and knaves.
+// some hidden images are being translated. see https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/. parent div mobile-to-desktop-transition has display none.
+
+//parts of the image text are ignored (uses umbrella, doesn't use umbrella) https://brilliant.org/courses/logical-languages/introduction-99/knights-knaves-and-words/1/ (third challenge)
