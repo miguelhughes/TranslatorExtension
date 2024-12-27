@@ -7,6 +7,29 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                     const textStrings = [];
 
+                    // Extract text strings
+                    traverseNode(document.documentElement, (node, text, index) => {
+                        textStrings[index] = text;
+                    });
+
+                    console.log("starting translation...");
+                    const translatedTexts = await translateText(textStrings);
+                    console.log("translation finished");
+
+                    const translatedObject = JSON.parse(translatedTexts)
+
+                    // Replace text nodes
+                    traverseNode(document.documentElement, (node, text, index) => {
+                        const translatedText = translatedObject[index] || text;
+                        node.textContent = translatedText;
+                        const parent = node.parentElement;
+                        if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
+                            parent.setAttribute('data-translated', 'true');
+                        }
+                    });
+
+                    //translation complete. Functions below.
+
                     function traverseNode(node, nodeAction, index = 0) {
                         if (!isNodeVisible(node)) {
                             return index;
@@ -37,30 +60,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
                     }
 
-                    // Extract text strings
-                    traverseNode(document.documentElement, (node, text, index) => {
-                        textStrings[index] = text;
-                    });
-
-                    const apiKey = '[redacted]';
-                    // anterior problemas:
-                    // en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/1/ no traduce el botón.
-                    // en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/ si se tradujo, al apretar continue se rompe todo, entra en un loop asqueroso
-                    // en https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/, después de traducir, al cambiar, la página queda en blanco.
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/1/, los dígitos aparecen 3 veces.
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ empezar de nuevo/continuar aparecen en el lugar incorrecto. también en la descripción del problema, #555 pasa a ser 55
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
-
-                    // problemas actuales: 
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ a veces se rompe, pero no si se carga directamente, solo si se viene de otr apágina traducida
-                    // tampoco se traducen las ayudas del costado y eso.
-
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/ el orden de la traducción es incorrecto dado que se traducen los elementos html uno a uno.
-                    //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, no mantiene los espacios, "en el pasillo". agregar una función para reclamar los espacios. 
-                    //en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, si se mueven los muñecos y luego de traduce; no se traducen "aisle, center, window" porque no se veían.
 
                     function toIndexedObject(array) {
                         const indexedObject = array.reduce((obj, text, index) => {
@@ -71,7 +70,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
                     
                     // Function to translate text using OpenAI API.
-                    const translateText = async (texts) => {
+                    async function translateText(texts) {
+                        const apiKey = '[redacted]';
                         const indexedObject = toIndexedObject(texts);
                         console.log(`indexedObject: '${indexedObject}'`);
                         var stringArray = JSON.stringify(indexedObject);
@@ -110,23 +110,30 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                         return content;
                     };
-
-                    console.log("starting translation...");
-                    const translatedTexts = await translateText(textStrings);
-                    console.log("translation finished");
-
-                    const translatedObject = JSON.parse(translatedTexts)
-                    // Replace text nodes
-                    traverseNode(document.documentElement, (node, text, index) => {
-                        const translatedText = translatedObject[index] || text;
-                        node.textContent = translatedText;
-                        const parent = node.parentElement;
-                        if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
-                            parent.setAttribute('data-translated', 'true');
-                        }
-                    });
                 }
             });
         });
     });
 });
+
+
+// problemas anteriores:
+// en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/1/ no traduce el botón.
+// en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/ si se tradujo, al apretar continue se rompe todo, entra en un loop asqueroso
+// en https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/, después de traducir, al cambiar, la página queda en blanco.
+// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/1/, los dígitos aparecen 3 veces.
+// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ empezar de nuevo/continuar aparecen en el lugar incorrecto. también en la descripción del problema, #555 pasa a ser 55
+// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
+
+// problemas actuales: 
+// https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
+// https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
+// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
+// https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ a veces se rompe, pero no si se carga directamente, solo si se viene de otr apágina traducida
+// tampoco se traducen las ayudas del costado y eso.
+
+// https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/ el orden de la traducción es incorrecto dado que se traducen los elementos html uno a uno.
+//en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, no mantiene los espacios, "en el pasillo". agregar una función para reclamar los espacios. 
+//en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/3/, si se mueven los muñecos y luego de traduce; no se traducen "aisle, center, window" porque no se veían.
+
+//after adding the "data translated" attribute, when navigating back & forth on the top arrows, some items retain their attributes and aren't translated again. https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/4/
