@@ -226,7 +226,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 content: [
                                     {
                                         type: "text",
-                                        text: "If there's any text in this image, create a reply with the texts in english and their translations in spanish. The reply must be a json array with the texts in english as keys and their translations in spanish as values. if there isn't any text, reply with an empty array. Exclude any items whose translation remains the same (symbols, acronyms, names, etc.)"
+                                        text: "If there's any text in this image, create a reply with the texts in english and their translations in spanish. The reply must be a json array with the texts in english as keys and their translations in spanish as values. if there isn't any text, reply with an empty array. Exclude any items whose translation remains the same"
                                     },
                                     {
                                         type: "image_url",
@@ -367,7 +367,17 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
 
                     async function callOpenAI(messages, jsonResponse = false) {
-                        const apiKey = '[redacted]';
+                        // Get the API key from storage
+                        const apiKey = await new Promise((resolve) => {
+                            chrome.storage.sync.get(['openAiApiKey'], (result) => {
+                                resolve(result.openAiApiKey);
+                            });
+                        });
+
+                        if (!apiKey) {
+                            throw new Error('OpenAI API key not configured. Please set it in the extension popup.');
+                        }
+
                         const response = await fetch('https://api.openai.com/v1/chat/completions', {
                             method: 'POST',
                             headers: {
@@ -423,4 +433,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // ver este, lo probé con tommy no nandaba del todo bien. puede ser lo de arriba. https://brilliant.org/courses/logic-deduction/introduction-68/practice/logic_truth-seeking_practice-v1-0-set_one/
 // some hidden images are being translated. see https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/. parent div mobile-to-desktop-transition has display none.
 
-//parts of the image text are ignored (uses umbrella, doesn't use umbrella) https://brilliant.org/courses/logical-languages/introduction-99/knights-knaves-and-words/1/ (third challenge)
+// parts of the image text are ignored (uses umbrella, doesn't use umbrella) https://brilliant.org/courses/logical-languages/introduction-99/knights-knaves-and-words/1/ (third challenge). probé lo mismo en postman (esta el prompt grabado) y lo traduce bien. 
+
+// al traducir páginas que tienen mucho texto, con varias interrupciones (cuando uno recarga la página y está bastante avanzada), los indices se desfazan en la traducción y se rompe todo. ir a https://brilliant.org/courses/logical-languages/introduction-99/knights-knaves-and-words/1/, asegurarse de que el de Fiadh and Greg esté abierto (después de umbrella) y traducir toda la página.
+// items no se traducen, aún siendo texto https://brilliant.org/courses/probability-fundamentals/understanding-probability/simulating-outcomes/1/?from_llp=data-analysis. muchísimos items antes y después de este no se traducen, tablas, opciones, etc.

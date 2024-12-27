@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Translator Extension Settings</title>
+    <style>
+        body {
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="password"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            display: none;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Translator Extension Settings</h2>
+        <div class="form-group">
+            <label for="api-key">OpenAI API Key:</label>
+            <input type="password" id="api-key" placeholder="Enter your OpenAI API key">
+            <button id="save">Save</button>
+        </div>
+        <div id="status" class="status"></div>
+    </div>
+    <script src="options.js"></script>
+</body>
+</html> 
