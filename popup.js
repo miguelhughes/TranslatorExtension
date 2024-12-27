@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 target: { tabId: tabs[0].id },
                 func: async () => {
 
+                    const apiKey = '[redacted]';
                     addTranslationStyle();
 
                     //on start, translate the whole visible page.
@@ -49,6 +50,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 parent.classList.remove('translating');
                             }
                         });
+
+                        // Handle images
+                        handleImages(nodeToTranslate);
                     }
 
                     async function translateNewContent(mutations) {
@@ -116,7 +120,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     
                     // Function to translate text using OpenAI API.
                     async function translateText(texts) {
-                        const apiKey = '[redacted]';
                         const indexedObject = toIndexedObject(texts);
                         console.log(`indexedObject: '${indexedObject}'`);
                         var stringArray = JSON.stringify(indexedObject);
@@ -155,6 +158,108 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                         return content;
                     };
+                    
+                    // handle image translation
+                    async function handleImages(node) {
+                        console.log('handling images');
+                        const images = Array.from(node.querySelectorAll('img')).reverse();
+                        for (let img of images) {
+                            if (!img.hasAttribute('data-translated')) {
+                                img.classList.add('translating');
+                                let success;
+                                try {
+                                    const imageTexts = await extractAndTranslateTextFromImage(img.src);
+                                    if (imageTexts && Object.keys(imageTexts).length > 0) {
+                                        createImageTooltip(img, imageTexts);
+                                    }
+                                    success = true;
+                                }
+                                catch (error) {
+                                    console.error('error translating image', error);
+                                    success = false;
+                                }
+                                img.setAttribute('data-translated', success ? 'true' : 'false');
+                                img.classList.remove('translating');
+                            }
+                        }
+                        console.log('images handled');
+                    }
+
+
+                    async function extractAndTranslateTextFromImage(imageUrl) {
+                        console.log('extracting and translating text from image ' + imageUrl);
+                        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`,
+                            },
+                            body: JSON.stringify({
+                                model: "gpt-4o-mini",
+                                messages: [
+                                    {
+                                        role: "user",
+                                        content: [
+                                            {
+                                                type: "text",
+                                                text: "If there's any text in this image, create a reply with the texts in english and their translations in spanish. The reply must be a json array with the texts in english as keys and their translations in spanish as values. if there isn't any text, reply with an empty array. Exclude any items whose translation remains the same (symbols, acronyms, names, etc.)"
+                                            },
+                                            {
+                                                type: "image_url",
+                                                image_url: {
+                                                    url: imageUrl
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ],
+                                max_tokens: 300,
+                                response_format: { 
+                                    type: "json_object"
+                                }
+                            }),
+                        });
+
+                        try {
+                            throw new Error('error');
+                        } catch (error) {
+                            
+                        }
+
+                        const data = await response.json();
+                        const content = data.choices[0].message.content;
+                        console.log('image translation response: ' + content);
+                        const responseJson = JSON.parse(content);
+                        
+                        //log the amount of items the json response has, considering that it's akey value object, not an array
+                        console.log('image translation response items: ' + Object.keys(responseJson).length);
+                        return responseJson;
+                    }
+
+                    // create tooltip for image with the translations
+                    function createImageTooltip(img, translations) {
+                        const tooltip = document.createElement('div');
+                        tooltip.className = 'image-translation-tooltip';
+                        
+                        let tooltipContent = '';
+                        for (let [original, translated] of Object.entries(translations)) {
+                            tooltipContent += `<strong>${original}</strong>: ${translated}<br>`;
+                        }
+                        
+                        tooltip.innerHTML = tooltipContent;
+                        
+                        img.parentNode.style.position = 'relative';
+                        img.parentNode.appendChild(tooltip);
+                        
+                        img.addEventListener('mouseover', () => {
+                            tooltip.style.display = 'block';
+                        });
+                        
+                        img.addEventListener('mouseout', () => {
+                            tooltip.style.display = 'none';
+                        });
+                    }
+
 
                     function startMutationObserver(){
 
@@ -214,6 +319,37 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 animation: translateWave 1.5s linear infinite;
                                 transition: background 0.3s ease;
                             }
+
+                            .image-translation-tooltip {
+                                display: none;
+                                position: absolute;
+                                bottom: 100%;
+                                left: 50%;
+                                transform: translateX(-50%);
+                                background-color: rgba(255, 255, 255, 0.95);
+                                color: #333;
+                                padding: 10px 15px;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                z-index: 1000;
+                                white-space: nowrap;
+                                border: 2px dashed #ccc;
+                                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                                word-wrap: break-word;
+                            }
+
+
+                            // Tooltip arrow
+                            .image-translation-tooltip::after {
+                                content: '';
+                                position: absolute;
+                                top: 100%;
+                                left: 50%;
+                                margin-left: -10px;
+                                border-width: 10px;
+                                border-style: solid;
+                                border-color: #ccc transparent transparent transparent;
+                            }
                         `;
 
                         const styleElement = document.createElement('style');
@@ -221,6 +357,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         styleElement.setAttribute('data-translation-style', 'true');
                         document.head.appendChild(styleElement);
                     }
+
                 }
             });
         });
@@ -251,3 +388,4 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ Cartel de "practice" arribe no se traduce porque es una imagen.
 
 // ver este, lo probé con tommy no nandaba del todo bien. puede ser lo de arriba. https://brilliant.org/courses/logic-deduction/introduction-68/practice/logic_truth-seeking_practice-v1-0-set_one/
+// some SVGs aren't supported. https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/ and also the one with the knights and knaves.
