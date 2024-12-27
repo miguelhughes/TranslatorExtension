@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 target: { tabId: tabs[0].id },
                 func: async () => {
 
-                    const apiKey = '[redacted]';
                     addTranslationStyle();
 
                     //on start, translate the whole visible page.
@@ -36,6 +35,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                         console.log("starting translation...");
                         const translatedTexts = await translateText(textStrings);
+                        //TODO: if translation fails for some reason, we should remove the translating class. we need to go through all the nodes again.
                         console.log("translation finished");
                         
                         const translatedObject = parseTranslationResponse(textStrings, translatedTexts);
@@ -121,43 +121,25 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // Function to translate text using OpenAI API.
                     async function translateText(texts) {
                         const indexedObject = toIndexedObject(texts);
-                        console.log(`indexedObject: '${indexedObject}'`);
-                        var stringArray = JSON.stringify(indexedObject);
-                        console.log(`stringArray: '${stringArray}'`);
-
-                        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiKey}`,
+                        console.log(`indexedObject: '${JSON.stringify(indexedObject)}'`);
+                    
+                        const messages = [
+                            {
+                                role: "system",
+                                content: "You will be provided with a list of sentences, belonging to a website, and your task is to translate them into spanish, considering the whole text as context",
                             },
-                            body: JSON.stringify({
-                                model: "gpt-4o-mini",
-                                messages: [
-                                    {
-                                        role: "system",
-                                        content: "You will be provided with a list of sentences, belonging to a website, and your task is to translate them into spanish, considering the whole text as context",
-                                    },
-                                    {
-                                        role: "user",
-                                        content: stringArray,
-                                    }
-                                ],
-                                temperature: 0,
-                                top_p: 1,
-                                n: 1,
-                                stream: false,
-                                max_tokens: 2000,
-                                presence_penalty: 0,
-                                frequency_penalty: 0
-                            }),
-                        });
-                        const data = await response.json();
-                        const content = data.choices[0].message.content;
+                            {
+                                role: "user",
+                                content: JSON.stringify(indexedObject),
+                            }
+                        ];
+                    
+                        const content = await callOpenAI(messages);
                         console.log(`translated result: '${content}'`);
-
+                    
                         return content;
-                    };
+                    }
+                    
                     
                     // handle image translation
                     async function handleImages(node) {
@@ -185,53 +167,31 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         console.log('images handled');
                     }
 
-
                     async function extractAndTranslateTextFromImage(imageUrl) {
                         console.log('extracting and translating text from image ' + imageUrl);
-                        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiKey}`,
-                            },
-                            body: JSON.stringify({
-                                model: "gpt-4o-mini",
-                                messages: [
+                        
+                        const messages = [
+                            {
+                                role: "user",
+                                content: [
                                     {
-                                        role: "user",
-                                        content: [
-                                            {
-                                                type: "text",
-                                                text: "If there's any text in this image, create a reply with the texts in english and their translations in spanish. The reply must be a json array with the texts in english as keys and their translations in spanish as values. if there isn't any text, reply with an empty array. Exclude any items whose translation remains the same (symbols, acronyms, names, etc.)"
-                                            },
-                                            {
-                                                type: "image_url",
-                                                image_url: {
-                                                    url: imageUrl
-                                                }
-                                            }
-                                        ]
+                                        type: "text",
+                                        text: "If there's any text in this image, create a reply with the texts in english and their translations in spanish. The reply must be a json array with the texts in english as keys and their translations in spanish as values. if there isn't any text, reply with an empty array. Exclude any items whose translation remains the same (symbols, acronyms, names, etc.)"
+                                    },
+                                    {
+                                        type: "image_url",
+                                        image_url: {
+                                            url: imageUrl
+                                        }
                                     }
-                                ],
-                                max_tokens: 300,
-                                response_format: { 
-                                    type: "json_object"
-                                }
-                            }),
-                        });
-
-                        try {
-                            throw new Error('error');
-                        } catch (error) {
-                            
-                        }
-
-                        const data = await response.json();
-                        const content = data.choices[0].message.content;
+                                ]
+                            }
+                        ];
+                    
+                        const content = await callOpenAI(messages, true);
                         console.log('image translation response: ' + content);
                         const responseJson = JSON.parse(content);
                         
-                        //log the amount of items the json response has, considering that it's akey value object, not an array
                         console.log('image translation response items: ' + Object.keys(responseJson).length);
                         return responseJson;
                     }
@@ -338,8 +298,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 word-wrap: break-word;
                             }
 
-
-                            // Tooltip arrow
                             .image-translation-tooltip::after {
                                 content: '';
                                 position: absolute;
@@ -358,6 +316,31 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         document.head.appendChild(styleElement);
                     }
 
+                    async function callOpenAI(messages, jsonResponse = false) {
+                        const apiKey = '[redacted]';
+                        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`,
+                            },
+                            body: JSON.stringify({
+                                model: "gpt-4o-mini",
+                                messages: messages,
+                                temperature: 0,
+                                top_p: 1,
+                                n: 1,
+                                stream: false,
+                                max_tokens: 2000,
+                                presence_penalty: 0,
+                                frequency_penalty: 0,
+                                ...(jsonResponse && { response_format: { type: "json_object" } })
+                            }),
+                        });
+                    
+                        const data = await response.json();
+                        return data.choices[0].message.content;
+                    }
                 }
             });
         });
