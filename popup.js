@@ -4,44 +4,37 @@ document.addEventListener('DOMContentLoaded', (event) => {
             chrome.scripting.executeScript({
                 target: { tabId: tabs[0].id },
                 func: async () => {
-
                     var htmlString = document.documentElement.innerHTML;
 
-                    const textStrings = extractTextStrings(htmlString);
-                    console.log(textStrings);
+                    const textStrings = [];
 
-                    function extractTextStrings(htmlString) {
-                        // Create a temporary container element to parse the HTML
-                        const container = document.createElement('div');
-                        container.innerHTML = htmlString;
-
-                        // Define a recursive function to traverse the DOM tree
-                        //TODO: exclude elements that are not visible
-                        function traverseNode(node, textStrings) {
-                            if (node.nodeType === Node.TEXT_NODE) {
-                            // If it's a text node, add the text content to the array
+                    //TODO: exclude elements that are not visible
+                    //TODO: also exclude elements that are just numbers or pound signs, stuff like that.
+                    function traverseNode(node, nodeAction, index = 0) {
+                        // If it's a text node, run the action
+                        if (node.nodeType === Node.TEXT_NODE) {
                             const text = node.textContent;
                             if (text.trim() !== '') {
-                                textStrings.push(text);
+                                nodeAction(node, text, index);
+                                index++;
                             }
-                            } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
+                        } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
                             // If it's an element node, recursively traverse its child nodes
                             for (let i = 0; i < node.childNodes.length; i++) {
-                                traverseNode(node.childNodes[i], textStrings);
-                            }
+                                index = traverseNode(node.childNodes[i], nodeAction, index);
                             }
                         }
-
-                        // Initialize an empty array to store text strings
-                        const textStrings = [];
-
-                        // Traverse the DOM tree starting from the container element
-                        traverseNode(container, textStrings);
-
-                        return textStrings;
+                        return index;
                     }
 
-                    const apiKey = '[redacted]'; 
+                    // Extract text strings
+                    const container = document.createElement('div');
+                    container.innerHTML = htmlString;
+                    traverseNode(container, (node, text, index) => {
+                        textStrings[index] = text;
+                    });
+
+                    const apiKey = '[redacted]';
                     // anterior problemas:
                     // en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/1/ no traduce el botón.
                     // en https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/2/ si se tradujo, al apretar continue se rompe todo, entra en un loop asqueroso
@@ -52,25 +45,24 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ las ayudas del costado no se traducen; solo la visible, y cuando cambia, esta otra vez en inglés
                     // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ la imagen con el juego no se traduce
                     // https://brilliant.org/courses/logic-deduction/introduction-68/strategic-deductions-2/5/ a veces se rompe, pero no si se carga directamente, solo si se viene de otr apágina traducida
-                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ indices cruzados, traduce en orden distinto. también en la descripción del problema, #555 pasa a ser 55
+                    // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/2/ empezar de nuevo/continuar aparecen en el lugar incorrecto. también en la descripción del problema, #555 pasa a ser 55
                     // https://brilliant.org/courses/logic-deduction/introduction-68/extra-practice-25/3/, también problemas con el $, similar a arriba.
                     // tampoco se traducen las ayudas del costado y eso.
-                    // Function to translate text using OpenAI API.
-
+                    
                     function toIndexedObject(array) {
                         const indexedObject = array.reduce((obj, text, index) => {
-                        obj[index] = text;
-                        return obj;
+                            obj[index] = text;
+                            return obj;
                         }, {});
                         return indexedObject;
                     }
-
+                    
+                    // Function to translate text using OpenAI API.
                     const translateText = async (texts) => {
                         const indexedObject = toIndexedObject(texts);
                         console.log(`indexedObject: '${indexedObject}'`);
                         var stringArray = JSON.stringify(indexedObject);
                         console.log(`stringArray: '${stringArray}'`);
-                        //cont here. we're working on the prompt. 
 
                         const response = await fetch('https://api.openai.com/v1/chat/completions', {
                             method: 'POST',
@@ -106,38 +98,18 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         return content;
                     };
 
-                    function replaceTextNodesInPlace(translatedJSON) {
-                        let index = 0;
-
-                        // Define a recursive function to traverse the DOM tree
-                        function traverseNode(node) {
-                            if (node.nodeType === Node.TEXT_NODE) {
-                            // If it's a text node, replace its text content
-                            const text = node.textContent;
-                            if (text.trim() !== '') {
-                                const translatedText = translatedJSON[index] || text;
-                                node.textContent = translatedText;
-                                index++;
-                            }
-                            } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
-                            // If it's an element node, recursively traverse its child nodes
-                            for (let i = 0; i < node.childNodes.length; i++) {
-                                traverseNode(node.childNodes[i]);
-                            }
-                            }
-                        }
-
-                        // Traverse the DOM tree starting from the document element
-                        traverseNode(document.documentElement);
-                    }
-
                     console.log("starting translation...");
                     const translatedTexts = await translateText(textStrings);
                     console.log("translation finished");
-                    replaceTextNodesInPlace(JSON.parse(translatedTexts));
+
+                    const translatedObject = JSON.parse(translatedTexts)
+                    // Replace text nodes
+                    traverseNode(document.documentElement, (node, text, index) => {
+                        const translatedText = translatedObject[index] || text;
+                        node.textContent = translatedText;
+                    });
                 }
             });
         });
     });
 });
-
