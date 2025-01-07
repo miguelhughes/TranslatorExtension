@@ -92,7 +92,61 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 index++;
                             }
                         } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE' && !node.hasAttribute('data-translated')) {
-                            // If it's an element node, recursively traverse its child nodes
+                            // Handle Shadow DOM first
+                            if (node.shadowRoot) {
+                                // Create a TreeWalker for the shadow DOM
+                                const shadowWalker = document.createTreeWalker(
+                                    node.shadowRoot,
+                                    NodeFilter.SHOW_TEXT + NodeFilter.SHOW_ELEMENT,
+                                    {
+                                        acceptNode: function(node) {
+                                            // For element nodes
+                                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                                // Skip script and style tags entirely
+                                                if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') {
+                                                    return NodeFilter.FILTER_REJECT;
+                                                }
+                                                // Skip already translated nodes
+                                                if (node.hasAttribute('data-translated')) {
+                                                    return NodeFilter.FILTER_REJECT;
+                                                }
+                                                // Check visibility
+                                                if (!isNodeVisible(node)) {
+                                                    return NodeFilter.FILTER_REJECT;
+                                                }
+                                                // Skip elements but continue traversing their children
+                                                return NodeFilter.FILTER_SKIP;
+                                            }
+                                            
+                                            // For text nodes
+                                            if (node.nodeType === Node.TEXT_NODE) {
+                                                // Check if parent element is visible and not translated
+                                                const parentElement = node.parentElement;
+                                                if (parentElement && (!isNodeVisible(parentElement) || parentElement.hasAttribute('data-translated'))) {
+                                                    return NodeFilter.FILTER_REJECT;
+                                                }
+                                                
+                                                // Check if text node has content we want to translate
+                                                return node.textContent.trim() !== '' && /[A-Za-z]/.test(node.textContent)
+                                                    ? NodeFilter.FILTER_ACCEPT 
+                                                    : NodeFilter.FILTER_REJECT;
+                                            }
+                                            
+                                            return NodeFilter.FILTER_REJECT;
+                                        }
+                                    }
+                                );
+                    
+                                let currentNode;
+                                while (currentNode = shadowWalker.nextNode()) {
+                                    if (currentNode.nodeType === Node.TEXT_NODE) {
+                                        nodeAction(currentNode, currentNode.textContent, index);
+                                        index++;
+                                    }
+                                }
+                            }
+                    
+                            // Then handle regular DOM nodes
                             for (let i = 0; i < node.childNodes.length; i++) {
                                 index = traverseNode(node.childNodes[i], nodeAction, index);
                             }
@@ -303,9 +357,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
 
                     function addTranslationStyle() {
-                        if (document.querySelector('style[data-translation-style]'))
-                            return;
-
                         const loadingStyle = `
                             @keyframes translateWave {
                                 0% {
@@ -359,13 +410,34 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 border-color: #ccc transparent transparent transparent;
                             }
                         `;
-
-                        const styleElement = document.createElement('style');
-                        styleElement.textContent = loadingStyle;
-                        styleElement.setAttribute('data-translation-style', 'true');
-                        document.head.appendChild(styleElement);
+                    
+                        // Add style to main document if it doesn't exist
+                        if (!document.querySelector('style[data-translation-style]')) {
+                            const styleElement = document.createElement('style');
+                            styleElement.textContent = loadingStyle;
+                            styleElement.setAttribute('data-translation-style', 'true');
+                            document.head.appendChild(styleElement);
+                        }
+                    
+                        // Add style to all shadow roots
+                        const addStyleToShadowRoot = (node) => {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                if (node.shadowRoot && !node.shadowRoot.querySelector('style[data-translation-style]')) {
+                                    const shadowStyle = document.createElement('style');
+                                    shadowStyle.textContent = loadingStyle;
+                                    shadowStyle.setAttribute('data-translation-style', 'true');
+                                    node.shadowRoot.insertBefore(shadowStyle, node.shadowRoot.firstChild);
+                                }
+                    
+                                // Recursively check all child elements for shadow roots
+                                node.childNodes.forEach(child => addStyleToShadowRoot(child));
+                            }
+                        };
+                    
+                        // Start checking from document root
+                        addStyleToShadowRoot(document.documentElement);
                     }
-
+                    
                     async function callOpenAI(messages, jsonResponse = false) {
                         // Get the API key from storage
                         const apiKey = await new Promise((resolve) => {
