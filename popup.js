@@ -1,9 +1,38 @@
 document.addEventListener('DOMContentLoaded', (event) => {
+    // Load saved settings and initialize UI
+    chrome.storage.sync.get(['liveTranslationEnabled'], (result) => {
+        const toggle = document.getElementById('live-translation-toggle');
+        const isEnabled = result.liveTranslationEnabled !== false; // Default to true
+        
+        if (isEnabled) {
+            toggle.classList.add('active');
+        }
+    });
+
+    // Handle toggle click
+    document.getElementById('live-translation-toggle').addEventListener('click', () => {
+        const toggle = document.getElementById('live-translation-toggle');
+        const isActive = toggle.classList.contains('active');
+        
+        // Toggle the visual state
+        toggle.classList.toggle('active');
+        
+        // Save the setting
+        const newState = !isActive;
+        chrome.storage.sync.set({ liveTranslationEnabled: newState }, () => {
+            console.log('Live translation setting saved:', newState);
+        });
+    });
+
     document.getElementById('run-script').addEventListener('click', () => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            chrome.scripting.executeScript({
-                target: { tabId: tabs[0].id },
-                func: async () => {
+        // Get the current live translation setting before executing
+        chrome.storage.sync.get(['liveTranslationEnabled'], (result) => {
+            const liveTranslationEnabled = result.liveTranslationEnabled !== false; // Default to true
+            
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                chrome.scripting.executeScript({
+                    target: { tabId: tabs[0].id },
+                    func: async (liveTranslationEnabled) => {
 
                     addTranslationStyle();
 
@@ -11,9 +40,16 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     await translateContents(document.documentElement); 
                     
                     //translation complete. 
-                    // Set up observer for new content
-                    //const observer = new MutationObserver(translateNewContent);
-                    //startMutationObserver();
+                    const observer = new MutationObserver(handleMutationWithDebouncing);
+                    
+                    // Debouncing configuration and state
+                    const MUTATION_DEBOUNCE_DELAY = 100; // milliseconds
+                    let mutationTimeout = null;
+                    
+                    // Only start the mutation observer if live translation is enabled
+                    if (liveTranslationEnabled) {
+                        startMutationObserver();
+                    }
 
                     // Functions below.
                     async function translateContents(nodeToTranslate)
@@ -54,36 +90,12 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         // Handle images
                         handleImages(nodeToTranslate);
                     }
-
-                    async function translateNewContent(mutations) {
-
-                        stopMutationObserver();
-                        for (let mutation of mutations) {
-                            if (mutation.type === 'childList') {
-                                // for (let node of mutation.addedNodes) {
-                                //     await translateContents(node);
-                                // }
-                            } else if (mutation.type === 'characterData') {
-                                const parent = mutation.target.parentElement;
-                                if (parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
-                                    parent.removeAttribute('data-translated');
-                                }
-                                // if (mutation.oldValue != mutation.target.textContent){ //apparently sometimes this mutation get's called but the text is the same, so no point in translating
-                                    // await translateContents(mutation.target);
-                                // }
-                            }
-                        }
-
-                        // await translateContents(document.documentElement);
-                        startMutationObserver();
-
-                    }
                     
                     function traverseNode(node, nodeAction, index = 0) {
                         if (!isNodeVisible(node)) {
                             return index;
                         }
-
+                    
                         // If it's a text node, run the action
                         if (node.nodeType === Node.TEXT_NODE) {
                             const text = node.textContent;
@@ -324,6 +336,48 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         });
                     }
 
+                    /**
+                     * Mutation observer callback that implements debouncing to prevent rapid successive translations.
+                     * Each detected mutation resets the timer, ensuring translation only occurs after a quiet period.
+                     */
+                    async function handleMutationWithDebouncing(mutations) {
+                        // Clear any existing timeout (sliding timer approach)
+                        if (mutationTimeout) {
+                            clearTimeout(mutationTimeout);
+                        }
+                        
+                        // Set a new timeout to trigger translation after the delay
+                        mutationTimeout = setTimeout(async () => {
+                            await performDebouncedTranslation(mutations); //TODO: looks like on multiple mutations some changes are lost. 
+                        }, MUTATION_DEBOUNCE_DELAY);
+                    }
+
+                    /**
+                     * Performs the actual translation work after the debounce period has elapsed.
+                     */
+                    async function performDebouncedTranslation(mutations) {
+                        stopMutationObserver();
+                        
+                        // Process the mutations (keeping original logic)
+                        for (let mutation of mutations) {
+                            if (mutation.type === 'childList') {
+                                // for (let node of mutation.addedNodes) {
+                                //     await translateContents(node);
+                                // }
+                            } else if (mutation.type === 'characterData') {
+                                const parent = mutation.target.parentElement;
+                                if (parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
+                                    parent.removeAttribute('data-translated');
+                                }
+                                //TODO: sometimes this mutation get's called but the text is the same, so no point in translating
+                            }
+                        }
+
+                        await translateContents(document.documentElement);
+                        startMutationObserver();
+                        mutationTimeout = null; // Reset timeout reference
+                    }
+
 
                     function startMutationObserver(){
 
@@ -337,6 +391,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                     function stopMutationObserver() {
                         observer.disconnect();
+                        // Clear any pending debounce timeout
+                        if (mutationTimeout) {
+                            clearTimeout(mutationTimeout);
+                            mutationTimeout = null;
+                        }
                     }
 
                     function parseTranslationResponse(originalTexts, translatedTexts) {
@@ -366,7 +425,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                     background-position: 0% 50%;
                                 }
                             }
-
+                    
                             .translating {
                                 background-image: linear-gradient(
                                     90deg,
@@ -380,7 +439,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 animation: translateWave 1.5s linear infinite;
                                 transition: background 0.3s ease;
                             }
-
+                    
                             .image-translation-tooltip {
                                 display: none;
                                 position: absolute;
@@ -398,7 +457,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                                 box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
                                 word-wrap: break-word;
                             }
-
+                    
                             .image-translation-tooltip::after {
                                 content: '';
                                 position: absolute;
@@ -473,7 +532,12 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         const data = await response.json();
                         return data.choices[0].message.content;
                     }
-                }
+                    
+                    // Store live translation setting in page context for potential future use
+                    window.liveTranslationEnabled = liveTranslationEnabled;
+                },
+                args: [liveTranslationEnabled]
+                });
             });
         });
     });
@@ -509,3 +573,13 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
 // al traducir páginas que tienen mucho texto, con varias interrupciones (cuando uno recarga la página y está bastante avanzada), los indices se desfazan en la traducción y se rompe todo. ir a https://brilliant.org/courses/logical-languages/introduction-99/knights-knaves-and-words/1/, asegurarse de que el de Fiadh and Greg esté abierto (después de umbrella) y traducir toda la página.
 // items no se traducen, aún siendo texto https://brilliant.org/courses/probability-fundamentals/understanding-probability/simulating-outcomes/1/?from_llp=data-analysis. muchísimos items antes y después de este no se traducen, tablas, opciones, etc.
+
+// https://brilliant.org/courses/logic-deduction/advanced-knights-and-knaves-old-title/unknown-answers/1/?from_llp=logical-reasoning no traduce explicación
+// https://brilliant.org/courses/logic-deduction/advanced-knights-and-knaves-old-title/unknown-answers/2/?from_llp=logical-reasoning la de "Marv encounters two last beings, Taj and Yuri" tampoco anda . (insufficient funds?)
+
+// TODO: Add handling of errors & show messages: 
+// missing api key
+// out of money/tokens
+// general error
+// https://platform.openai.com/docs/guides/error-codes/api-errors
+// it would also be nice to have an upper limit on the size of the request. I think there was a bug that used up most of my tokens in just one request.
