@@ -34,6 +34,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 target: { tabId: tabs[0].id },
                     func: async (liveTranslationEnabled) => {
 
+                    // Cache translations for repeated strings (must be initialized before first translate call)
+                    const translationCache = new Map();
+
                     addTranslationStyle();
 
                     //on start, translate the whole visible page.
@@ -43,7 +46,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     const observer = new MutationObserver(handleMutationWithDebouncing);
                     
                     // Debouncing configuration and state
-                    const MUTATION_DEBOUNCE_DELAY = 100; // milliseconds
+                    const MUTATION_DEBOUNCE_DELAY = 400; // milliseconds
                     let mutationTimeout = null;
                     let mutationCallCount = 0; // For logging purposes
                     
@@ -55,42 +58,77 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // Functions below.
                     async function translateContents(nodeToTranslate)
                     {
-                        console.log(`🌍 Starting translation of ${nodeToTranslate === document.documentElement ? 'entire document' : 'specific node'}`);
-                        const textStrings = [];
-                            
-                        // Extract text strings
-                        traverseNode(nodeToTranslate, (node, text, index) => {
-                            textStrings[index] = text;
-                            if (node.parentElement && node.parentElement.nodeType === Node.ELEMENT_NODE) {
-                                node.parentElement.classList.add('translating');
-                            }
-                        });
+                        try {
+                            console.log(`🌍 Starting translation of ${nodeToTranslate === document.documentElement ? 'entire document' : 'specific node'}`);
+                            const snapshotItems = [];
 
-                        if (textStrings.length === 0) {
-                            console.log("no strings to translate, translation skipped");
-                            return;
+                            // Extract text strings with stable node references
+                            traverseNode(nodeToTranslate, (node, text, index) => {
+                                snapshotItems.push({ id: index, node: node, original: text });
+                                if (node.parentElement && node.parentElement.nodeType === Node.ELEMENT_NODE) {
+                                    node.parentElement.classList.add('translating');
+                                }
+                            });
+
+                            console.log(`🧭 Snapshot collected: ${snapshotItems.length} text nodes`);
+
+                            if (snapshotItems.length === 0) {
+                                console.log("no strings to translate, translation skipped");
+                                return;
+                            }
+
+                            // Build request map and prefill from cache
+                            const idToTextRequest = {};
+                            const prefills = {};
+                            for (const item of snapshotItems) {
+                                if (translationCache.has(item.original)) {
+                                    prefills[item.id] = translationCache.get(item.original);
+                                } else {
+                                    idToTextRequest[item.id] = item.original;
+                                }
+                            }
+
+                            const requestCount = Object.keys(idToTextRequest).length;
+                            const prefillCount = Object.keys(prefills).length;
+                            console.log(`🧪 Will request ${requestCount} new strings, ${prefillCount} from cache`);
+
+                            console.log("starting translation...");
+                            let translatedMap = {};
+                            if (requestCount > 0) {
+                                translatedMap = await translateTextMap(idToTextRequest);
+                            }
+                            const finalTranslations = { ...prefills, ...translatedMap };
+                            console.log("translation finished");
+
+                            // Replace text nodes using the snapshot with guards
+                            let applied = 0;
+                            for (const item of snapshotItems) {
+                                const node = item.node;
+                                const translatedText = finalTranslations[item.id] || item.original;
+
+                                // Guard: node still present and unchanged
+                                if (!node.isConnected) continue;
+                                if (node.textContent !== item.original) continue;
+
+                                node.textContent = translatedText;
+                                applied++;
+                                const parent = node.parentElement;
+                                if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
+                                    parent.setAttribute('data-translated', 'true');
+                                    parent.classList.remove('translating');
+                                }
+
+                                if (!translationCache.has(item.original)) {
+                                    translationCache.set(item.original, translatedText);
+                                }
+                            }
+                            console.log(`✍️ Applied translations to ${applied} nodes`);
+
+                            // Handle images
+                            handleImages(nodeToTranslate);
+                        } catch (err) {
+                            console.error('translateContents error:', err);
                         }
-
-                        console.log("starting translation...");
-                        const translatedTexts = await translateText(textStrings);
-                        //TODO: if translation fails for some reason, we should remove the translating class. we need to go through all the nodes again.
-                        console.log("translation finished");
-                        
-                        const translatedObject = parseTranslationResponse(textStrings, translatedTexts);
-                        
-                        // Replace text nodes
-                        traverseNode(nodeToTranslate, (node, text, index) => {
-                            const translatedText = translatedObject[index] || text;
-                            node.textContent = translatedText;
-                            const parent = node.parentElement;
-                            if (parent && parent.nodeType === Node.ELEMENT_NODE && !parent.hasAttribute('data-translated')) {
-                                parent.setAttribute('data-translated', 'true');
-                                parent.classList.remove('translating');
-                            }
-                        });
-
-                        // Handle images
-                        handleImages(nodeToTranslate);
                     }
                     
                     function traverseNode(node, nodeAction, index = 0) {
@@ -177,35 +215,27 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
                     }
 
-
-                    function toIndexedObject(array) {
-                        const indexedObject = array.reduce((obj, text, index) => {
-                            obj[index] = text;
-                            return obj;
-                        }, {});
-                        return indexedObject;
-                    }
-                    
-                    // Function to translate text using OpenAI API.
-                    async function translateText(texts) {
-                        const indexedObject = toIndexedObject(texts);
-                        console.log(`indexedObject: '${JSON.stringify(indexedObject)}'`);
-                    
+                    // Translate an object map of id -> text, preserving keys
+                    async function translateTextMap(idToText) {
                         const messages = [
                             {
                                 role: "system",
-                                content: "You will be provided with a list of sentences, belonging to a website, and your task is to translate them into spanish, considering the whole text as context",
+                                content: "You will be provided with a JSON object whose keys are string IDs and values are English sentences from a website. Translate the values into Spanish and return a JSON object preserving the exact same keys and structure. Do not add, remove, or reorder keys.",
                             },
                             {
                                 role: "user",
-                                content: JSON.stringify(indexedObject),
+                                content: JSON.stringify(idToText),
                             }
                         ];
-                    
-                        const content = await callOpenAI(messages);
+
+                        const content = await callOpenAI(messages, true);
                         console.log(`translated result: '${content}'`);
-                    
-                        return content;
+                        try {
+                            return JSON.parse(content);
+                        } catch (e) {
+                            console.error('Failed to parse translation map, raw content:', content);
+                            throw e;
+                        }
                     }
                     
                     async function convertSvgToImage(svgUrl) {
@@ -560,23 +590,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         }
                     }
 
-                    function parseTranslationResponse(originalTexts, translatedTexts) {
-                        var translatedObject;
-                        try {
-                            translatedObject = JSON.parse(translatedTexts)
-                        } catch (ex) {
-                            // sometimes if the request has just one entity, it doesn't return an array, but a string. In that case, we need to convert it to an array.
-                            if (originalTexts.length == 1) {
-                                translatedObject = [translatedTexts];
-                            }
-                            else
-                            {
-                                throw ex;
-                            }
-                        }
-                        return translatedObject;
-                    }
-
                     function addTranslationStyle() {
                         const loadingStyle = `
                             @keyframes translateWave {
@@ -745,3 +758,5 @@ document.addEventListener('DOMContentLoaded', (event) => {
 // general error
 // https://platform.openai.com/docs/guides/error-codes/api-errors
 // it would also be nice to have an upper limit on the size of the request. I think there was a bug that used up most of my tokens in just one request.
+
+// https://brilliant.org/courses/logic-deduction/introduction-68/practice/logic_truth-seeking_practice-v1-0-set_one/ imagenes no se traducen en svg, aparentemente proque esta dentro de shadow root 
