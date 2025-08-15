@@ -29,9 +29,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
         chrome.storage.sync.get(['liveTranslationEnabled'], (result) => {
             const liveTranslationEnabled = result.liveTranslationEnabled !== false; // Default to true
             
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                chrome.scripting.executeScript({
-                    target: { tabId: tabs[0].id },
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            chrome.scripting.executeScript({
+                target: { tabId: tabs[0].id },
                     func: async (liveTranslationEnabled) => {
 
                     addTranslationStyle();
@@ -45,15 +45,17 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     // Debouncing configuration and state
                     const MUTATION_DEBOUNCE_DELAY = 100; // milliseconds
                     let mutationTimeout = null;
+                    let mutationCallCount = 0; // For logging purposes
                     
                     // Only start the mutation observer if live translation is enabled
                     if (liveTranslationEnabled) {
-                        startMutationObserver();
+                    startMutationObserver();
                     }
 
                     // Functions below.
                     async function translateContents(nodeToTranslate)
                     {
+                        console.log(`🌍 Starting translation of ${nodeToTranslate === document.documentElement ? 'entire document' : 'specific node'}`);
                         const textStrings = [];
                             
                         // Extract text strings
@@ -337,18 +339,159 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
 
                     /**
+                     * Helper function to describe a single node with shadow root detection
+                     */
+                    function describeNode(node) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            return `text:"${node.textContent.substring(0, 15)}${node.textContent.length > 15 ? '...' : ''}"`;
+                        } else if (node.nodeType === Node.ELEMENT_NODE) {
+                            const text = node.textContent?.trim() || '';
+                            const hasChildren = node.children.length > 0;
+                            const hasShadowRoot = node.shadowRoot !== null;
+
+                            let nodeDesc = `<${node.tagName.toLowerCase()}`;
+                            if (node.className) nodeDesc += ` class="${node.className.substring(0, 20)}${node.className.length > 20 ? '...' : ''}"`;
+                            nodeDesc += `>`;
+                            
+                            if (text) {
+                                nodeDesc += ` "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`;
+                            } else if (hasShadowRoot) {
+                                const shadowText = node.shadowRoot.textContent?.trim() || '';
+                                if (shadowText) {
+                                    nodeDesc += ` [shadow: "${shadowText.substring(0, 30)}${shadowText.length > 30 ? '...' : ''}"]`;
+                                } else {
+                                    nodeDesc += ` [shadow: ${node.shadowRoot.children.length} shadow children]`;
+                                }
+                            } else if (hasChildren) {
+                                // Check if any children have shadow roots (common pattern with css-1sgw6i5)
+                                const childWithShadow = Array.from(node.children).find(child => child.shadowRoot);
+                                if (childWithShadow) {
+                                    // Use TreeWalker to get only content text, skipping styles
+                                    const shadowWalker = document.createTreeWalker(
+                                        childWithShadow.shadowRoot,
+                                        NodeFilter.SHOW_TEXT,
+                                        {
+                                            acceptNode: function(textNode) {
+                                                // Skip text nodes inside style or script tags
+                                                const parent = textNode.parentElement;
+                                                if (parent && (parent.tagName === 'STYLE' || parent.tagName === 'SCRIPT')) {
+                                                    return NodeFilter.FILTER_REJECT;
+                                                }
+                                                return textNode.textContent.trim() !== '' && /[A-Za-z]/.test(textNode.textContent)
+                                                    ? NodeFilter.FILTER_ACCEPT 
+                                                    : NodeFilter.FILTER_REJECT;
+                                            }
+                                        }
+                                    );
+                                    
+                                    const textParts = [];
+                                    let currentNode;
+                                    while (currentNode = shadowWalker.nextNode()) {
+                                        textParts.push(currentNode.textContent.trim());
+                                    }
+                                    const shadowText = textParts.join(' ');
+                                    
+                                    nodeDesc += ` ["${shadowText.substring(0, 30)}${shadowText.length > 30 ? '...' : ''}"]`;
+                                    // nodeDesc += ` [child ${childWithShadow.tagName.toLowerCase()} has shadow: "${shadowText.substring(0, 30)}${shadowText.length > 30 ? '...' : ''}"]`;
+                                } else {
+                                    nodeDesc += ` [${node.children.length} child elements]`;
+                                }
+                            } else {
+                                nodeDesc += ` [empty]`;
+                            }
+                            return nodeDesc;
+                        }
+                        return node.nodeName;
+                    }
+
+                    /**
+                     * Helper function to create a descriptive summary of mutations for logging
+                     */
+                    function describeMutations(mutations, callId) {
+                        return mutations.map((mutation, index) => {
+                            const target = mutation.target;
+                            let description = `[${callId}-${index}] ${mutation.type}`;
+                            
+                            if (target.nodeType === Node.ELEMENT_NODE) {
+                                description += ` on <${target.tagName.toLowerCase()}`;
+                                if (target.id) description += ` id="${target.id}"`;
+                                if (target.className) description += ` class="${target.className.substring(0, 30)}${target.className.length > 30 ? '...' : ''}"`;
+                                description += `>`;
+                                
+                                // Add text content snippet with shadow root detection
+                                const textContent = target.textContent?.trim() || '';
+                                const hasShadowRoot = target.shadowRoot !== null;
+
+                                
+                                if (textContent) {
+                                    description += ` "${textContent.substring(0, 25)}${textContent.length > 25 ? '...' : ''}"`;
+                                } else if (hasShadowRoot) {
+                                    const shadowText = target.shadowRoot.textContent?.trim() || '';
+                                    if (shadowText) {
+                                        description += ` [shadow: "${shadowText.substring(0, 25)}${shadowText.length > 25 ? '...' : ''}"]`;
+                                    } else {
+                                        description += ` [shadow: ${target.shadowRoot.children.length} shadow children]`;
+                                    }
+                                }
+                            } else if (target.nodeType === Node.TEXT_NODE) {
+                                description += ` on text node`;
+                                if (target.parentElement) {
+                                    description += ` in <${target.parentElement.tagName.toLowerCase()}>`;
+                                }
+                                const textContent = target.textContent || '';
+                                description += ` content: "${textContent.substring(0, 25)}${textContent.length > 25 ? '...' : ''}"`;
+                            }
+                            
+                            if (mutation.type === 'childList') {
+                                description += ` (added: ${mutation.addedNodes.length}, removed: ${mutation.removedNodes.length})`;
+                                
+                                // Show content of added/removed nodes
+                                if (mutation.addedNodes.length > 0) {
+                                    const addedContent = Array.from(mutation.addedNodes)
+                                        .map(node => describeNode(node))
+                                        .join(', ');
+                                    description += ` [added: ${addedContent}]`;
+                                }
+                                
+                                if (mutation.removedNodes.length > 0) {
+                                    const removedContent = Array.from(mutation.removedNodes)
+                                        .map(node => describeNode(node))
+                                        .join(', ');
+                                    description += ` [removed: ${removedContent}]`;
+                                }
+                            }
+                            
+                            return description;
+                        }).join('\n    ');
+                    }
+
+                    /**
                      * Mutation observer callback that implements debouncing to prevent rapid successive translations.
                      * Each detected mutation resets the timer, ensuring translation only occurs after a quiet period.
                      */
                     async function handleMutationWithDebouncing(mutations) {
+                        mutationCallCount++;
+                        const currentCallId = mutationCallCount;
+                        const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+                        
+                        console.log(`🔍 MUTATION CALL #${currentCallId} at ${timestamp}`);
+                        console.log(`📝 Received ${mutations.length} mutations:`);
+                        console.log(`    ${describeMutations(mutations, currentCallId)}`);
+                        
                         // Clear any existing timeout (sliding timer approach)
                         if (mutationTimeout) {
+                            console.log(`⏰ Clearing previous timeout (debouncing in effect)`);
                             clearTimeout(mutationTimeout);
                         }
                         
+                        console.log(`⏳ Setting ${MUTATION_DEBOUNCE_DELAY}ms timeout for call #${currentCallId}`);
+                        
                         // Set a new timeout to trigger translation after the delay
                         mutationTimeout = setTimeout(async () => {
-                            await performDebouncedTranslation(mutations); //TODO: looks like on multiple mutations some changes are lost. 
+                            console.log(`🚀 TIMEOUT TRIGGERED for call #${currentCallId} at ${new Date().toISOString().split('T')[1].split('.')[0]}`);
+                            console.log(`📋 Processing ${mutations.length} mutations from call #${currentCallId}:`);
+                            console.log(`    ${describeMutations(mutations, currentCallId)}`);
+                            await performDebouncedTranslation(mutations);
                         }, MUTATION_DEBOUNCE_DELAY);
                     }
 
@@ -356,24 +499,41 @@ document.addEventListener('DOMContentLoaded', (event) => {
                      * Performs the actual translation work after the debounce period has elapsed.
                      */
                     async function performDebouncedTranslation(mutations) {
+                        const processingTimestamp = new Date().toISOString().split('T')[1].split('.')[0];
+                        console.log(`🔧 PROCESSING MUTATIONS at ${processingTimestamp}`);
+                        console.log(`📊 Final mutation count to process: ${mutations.length}`);
+
                         stopMutationObserver();
+                        
+                        let processedCount = 0;
+                        let removedTranslatedCount = 0;
                         
                         // Process the mutations (keeping original logic)
                         for (let mutation of mutations) {
+                            processedCount++;
+                            console.log(`  🔸 Processing mutation ${processedCount}: ${mutation.type} on ${mutation.target.nodeName}`);
+                            
                             if (mutation.type === 'childList') {
                                 // for (let node of mutation.addedNodes) {
                                 //     await translateContents(node);
                                 // }
                             } else if (mutation.type === 'characterData') {
                                 const parent = mutation.target.parentElement;
-                                if (parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
+                                if (parent && parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
                                     parent.removeAttribute('data-translated');
+                                    removedTranslatedCount++;
+                                    console.log(`    🏷️ Removed data-translated from <${parent.tagName.toLowerCase()}>`);
                                 }
                                 //TODO: sometimes this mutation get's called but the text is the same, so no point in translating
                             }
                         }
 
+                        console.log(`✅ Mutation processing complete: ${processedCount} mutations processed, ${removedTranslatedCount} elements unmarked`);
+                        console.log(`🌍 Starting full page translation...`);
+
                         await translateContents(document.documentElement);
+                        
+                        console.log(`🔄 Restarting mutation observer`);
                         startMutationObserver();
                         mutationTimeout = null; // Reset timeout reference
                     }
@@ -390,9 +550,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     }
 
                     function stopMutationObserver() {
+                        console.log(`🛑 Stopping mutation observer`);
                         observer.disconnect();
                         // Clear any pending debounce timeout
                         if (mutationTimeout) {
+                            console.log(`🧹 Clearing pending timeout during observer stop`);
                             clearTimeout(mutationTimeout);
                             mutationTimeout = null;
                         }
