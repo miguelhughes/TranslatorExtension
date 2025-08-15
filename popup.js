@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
         });
     });
 
-    document.getElementById('run-script').addEventListener('click', () => {
+    document.getElementById('translate-button').addEventListener('click', () => {
         // Get the current live translation setting before executing
         chrome.storage.sync.get(['liveTranslationEnabled'], (result) => {
             const liveTranslationEnabled = result.liveTranslationEnabled !== false; // Default to true
@@ -438,61 +438,66 @@ document.addEventListener('DOMContentLoaded', (event) => {
                      * Helper function to create a descriptive summary of mutations for logging
                      */
                     function describeMutations(mutations, callId) {
-                        return mutations.map((mutation, index) => {
-                            const target = mutation.target;
-                            let description = `[${callId}-${index}] ${mutation.type}`;
-                            
-                            if (target.nodeType === Node.ELEMENT_NODE) {
-                                description += ` on <${target.tagName.toLowerCase()}`;
-                                if (target.id) description += ` id="${target.id}"`;
-                                if (target.className) description += ` class="${target.className.substring(0, 30)}${target.className.length > 30 ? '...' : ''}"`;
-                                description += `>`;
+                        try {
                                 
-                                // Add text content snippet with shadow root detection
-                                const textContent = target.textContent?.trim() || '';
-                                const hasShadowRoot = target.shadowRoot !== null;
+                            return mutations.map((mutation, index) => {
+                                const target = mutation.target;
+                                let description = `[${callId}-${index}] ${mutation.type}`;
+                                
+                                if (target.nodeType === Node.ELEMENT_NODE) {
+                                    description += ` on <${target.tagName.toLowerCase()}`;
+                                    if (target.id) description += ` id="${target.id}"`;
+                                    if (target.className) description += ` class="${target.className.substring(0, 30)}${target.className.length > 30 ? '...' : ''}"`;
+                                    description += `>`;
+                                    
+                                    // Add text content snippet with shadow root detection
+                                    const textContent = target.textContent?.trim() || '';
+                                    const hasShadowRoot = target.shadowRoot !== null;
 
+                                    
+                                    if (textContent) {
+                                        description += ` "${textContent.substring(0, 25)}${textContent.length > 25 ? '...' : ''}"`;
+                                    } else if (hasShadowRoot) {
+                                        const shadowText = target.shadowRoot.textContent?.trim() || '';
+                                        if (shadowText) {
+                                            description += ` [shadow: "${shadowText.substring(0, 25)}${shadowText.length > 25 ? '...' : ''}"]`;
+                                        } else {
+                                            description += ` [shadow: ${target.shadowRoot.children.length} shadow children]`;
+                                        }
+                                    }
+                                } else if (target.nodeType === Node.TEXT_NODE) {
+                                    description += ` on text node`;
+                                    if (target.parentElement) {
+                                        description += ` in <${target.parentElement.tagName.toLowerCase()}>`;
+                                    }
+                                    const textContent = target.textContent || '';
+                                    description += ` content: "${textContent.substring(0, 25)}${textContent.length > 25 ? '...' : ''}"`;
+                                }
                                 
-                                if (textContent) {
-                                    description += ` "${textContent.substring(0, 25)}${textContent.length > 25 ? '...' : ''}"`;
-                                } else if (hasShadowRoot) {
-                                    const shadowText = target.shadowRoot.textContent?.trim() || '';
-                                    if (shadowText) {
-                                        description += ` [shadow: "${shadowText.substring(0, 25)}${shadowText.length > 25 ? '...' : ''}"]`;
-                                    } else {
-                                        description += ` [shadow: ${target.shadowRoot.children.length} shadow children]`;
+                                if (mutation.type === 'childList') {
+                                    description += ` (added: ${mutation.addedNodes.length}, removed: ${mutation.removedNodes.length})`;
+                                    
+                                    // Show content of added/removed nodes
+                                    if (mutation.addedNodes.length > 0) {
+                                        const addedContent = Array.from(mutation.addedNodes)
+                                            .map(node => describeNode(node))
+                                            .join(', ');
+                                        description += ` [added: ${addedContent}]`;
+                                    }
+                                    
+                                    if (mutation.removedNodes.length > 0) {
+                                        const removedContent = Array.from(mutation.removedNodes)
+                                            .map(node => describeNode(node))
+                                            .join(', ');
+                                        description += ` [removed: ${removedContent}]`;
                                     }
                                 }
-                            } else if (target.nodeType === Node.TEXT_NODE) {
-                                description += ` on text node`;
-                                if (target.parentElement) {
-                                    description += ` in <${target.parentElement.tagName.toLowerCase()}>`;
-                                }
-                                const textContent = target.textContent || '';
-                                description += ` content: "${textContent.substring(0, 25)}${textContent.length > 25 ? '...' : ''}"`;
-                            }
-                            
-                            if (mutation.type === 'childList') {
-                                description += ` (added: ${mutation.addedNodes.length}, removed: ${mutation.removedNodes.length})`;
                                 
-                                // Show content of added/removed nodes
-                                if (mutation.addedNodes.length > 0) {
-                                    const addedContent = Array.from(mutation.addedNodes)
-                                        .map(node => describeNode(node))
-                                        .join(', ');
-                                    description += ` [added: ${addedContent}]`;
-                                }
-                                
-                                if (mutation.removedNodes.length > 0) {
-                                    const removedContent = Array.from(mutation.removedNodes)
-                                        .map(node => describeNode(node))
-                                        .join(', ');
-                                    description += ` [removed: ${removedContent}]`;
-                                }
-                            }
-                            
-                            return description;
-                        }).join('\n    ');
+                                return description;
+                            }).join('\n    ');
+                        } catch (e) {
+                            return 'Error describing mutations';
+                        }
                     }
 
                     /**
@@ -543,11 +548,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                             processedCount++;
                             console.log(`  🔸 Processing mutation ${processedCount}: ${mutation.type} on ${mutation.target.nodeName}`);
                             
-                            if (mutation.type === 'childList') {
-                                // for (let node of mutation.addedNodes) {
-                                //     await translateContents(node);
-                                // }
-                            } else if (mutation.type === 'characterData') {
+                            if (mutation.type === 'characterData') {
                                 const parent = mutation.target.parentElement;
                                 if (parent && parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
                                     parent.removeAttribute('data-translated');
