@@ -34,6 +34,26 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 target: { tabId: tabs[0].id },
                     func: async (liveTranslationEnabled) => {
 
+                    if (window.__translatorRunning) {
+                        console.warn('Translator already running; ignoring click.');
+                        return;
+                        }
+                    window.__translatorRunning = true;
+                    console.log('started translator running');
+
+                    // Tear down any previous run to avoid parallel observers
+                    try { stopMutationObserver(); } catch (e) {
+                        console.log('error stopping previous mutation observer');
+                    }
+
+                    // also stop mutation debouncing, in case we're processing mutations when button is clicked.
+                    try {
+                        clearTimeout(window.__mutationTimeout__);
+                        window.__mutationTimeout__ = null;
+                    } catch (e) {
+                        console.log('error clearing previous timeout');
+                    }
+
                     // Cache translations for repeated strings (must be initialized before first translate call)
                     const translationCache = new Map();
 
@@ -43,17 +63,28 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     await translateContents(document.documentElement); 
                     
                     //translation complete. 
-                    const observer = new MutationObserver(handleMutationWithDebouncing);
                     
                     // Debouncing configuration and state
                     const MUTATION_DEBOUNCE_DELAY = 400; // milliseconds
-                    let mutationTimeout = null;
                     let mutationCallCount = 0; // For logging purposes
+                    
+                    // Simple loop safeguard: if too many translation runs happen in a short window, stop the observer
+                    const LOOP_GUARD_WINDOW_MS = 15000; // 15s window
+                    const LOOP_GUARD_MAX_RUNS = 8; // Max debounced translation runs within the window
+                    let translationRunTimestamps = [];
+                    let loopGuardTripped = false;
                     
                     // Only start the mutation observer if live translation is enabled
                     if (liveTranslationEnabled) {
-                    startMutationObserver();
+                        if (!window.__translatorObserver__) { //only initialize on first run
+                            window.__translatorObserver__ = new MutationObserver(handleMutationWithDebouncing);
+                        }
+                        startMutationObserver();
                     }
+
+                    window.__translatorRunning = false;
+                    console.log('stopped translator running');
+
 
                     // Functions below.
                     async function translateContents(nodeToTranslate)
@@ -505,6 +536,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
                      * Each detected mutation resets the timer, ensuring translation only occurs after a quiet period.
                      */
                     async function handleMutationWithDebouncing(mutations) {
+                        //TODO: If there are multiple calls to mutations and the mutations are different, we are effectively discarding some ofthem here. If we were to process them all and then use the debouncing to just trigger one translation, we would be able to handle all the mutations and still trigger one translation. It would be less efficient, but we would catch all. I think that if we keep the dom manipulation to the minimum, it should be ok.
                         mutationCallCount++;
                         const currentCallId = mutationCallCount;
                         const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
@@ -514,19 +546,22 @@ document.addEventListener('DOMContentLoaded', (event) => {
                         console.log(`    ${describeMutations(mutations, currentCallId)}`);
                         
                         // Clear any existing timeout (sliding timer approach)
-                        if (mutationTimeout) {
+                        if (window.__mutationTimeout__) {
                             console.log(`⏰ Clearing previous timeout (debouncing in effect)`);
-                            clearTimeout(mutationTimeout);
+                            clearTimeout(window.__mutationTimeout__);
+                            window.__mutationTimeout__ = null;
                         }
                         
                         console.log(`⏳ Setting ${MUTATION_DEBOUNCE_DELAY}ms timeout for call #${currentCallId}`);
                         
                         // Set a new timeout to trigger translation after the delay
-                        mutationTimeout = setTimeout(async () => {
+                        window.__mutationTimeout__ = setTimeout(async () => {
                             console.log(`🚀 TIMEOUT TRIGGERED for call #${currentCallId} at ${new Date().toISOString().split('T')[1].split('.')[0]}`);
                             console.log(`📋 Processing ${mutations.length} mutations from call #${currentCallId}:`);
                             console.log(`    ${describeMutations(mutations, currentCallId)}`);
                             await performDebouncedTranslation(mutations);
+                            window.__mutationTimeout__ = null; //just to keep in logic with the above. not really necessary as cleartimeout is safe and throws no exceptions.
+
                         }, MUTATION_DEBOUNCE_DELAY);
                     }
 
@@ -540,10 +575,21 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                         stopMutationObserver();
                         
+                        // LOOP SAFEGUARD: track recent translation runs within a rolling window
+                        const nowMs = Date.now();
+                        translationRunTimestamps.push(nowMs);
+                        translationRunTimestamps = translationRunTimestamps.filter(ts => ts > nowMs - LOOP_GUARD_WINDOW_MS);
+                        if (translationRunTimestamps.length > LOOP_GUARD_MAX_RUNS) {
+                            console.warn(`🧯 Translation loop safeguard triggered: ${translationRunTimestamps.length} runs in ${LOOP_GUARD_WINDOW_MS}ms. Stopping live translation to prevent loops.`);
+                            loopGuardTripped = true;
+                            // Observer already stopped above; do not proceed further
+                            return;
+                        }
+                        
                         let processedCount = 0;
                         let removedTranslatedCount = 0;
                         
-                        // Process the mutations (keeping original logic)
+                        // Process the mutations 
                         for (let mutation of mutations) {
                             processedCount++;
                             console.log(`  🔸 Processing mutation ${processedCount}: ${mutation.type} on ${mutation.target.nodeName}`);
@@ -551,11 +597,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
                             if (mutation.type === 'characterData') {
                                 const parent = mutation.target.parentElement;
                                 if (parent && parent.nodeType === Node.ELEMENT_NODE && parent.hasAttribute('data-translated')) {
-                                    parent.removeAttribute('data-translated');
+                                    parent.removeAttribute('data-translated'); //we remove the attribute so that its translated next
                                     removedTranslatedCount++;
                                     console.log(`    🏷️ Removed data-translated from <${parent.tagName.toLowerCase()}>`);
                                 }
-                                //TODO: sometimes this mutation get's called but the text is the same, so no point in translating
+                                //TODO: sometimes this mutation get's called but the text is the same, so there would be no point in translating.
                             }
                         }
 
@@ -564,15 +610,16 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                         await translateContents(document.documentElement);
                         
-                        console.log(`🔄 Restarting mutation observer`);
-                        startMutationObserver();
-                        mutationTimeout = null; // Reset timeout reference
+                        if (!loopGuardTripped) {
+                            console.log(`🔄 Restarting mutation observer`);
+                            startMutationObserver();
+                        }
                     }
 
 
                     function startMutationObserver(){
 
-                        observer.observe(document.body, {
+                        window.__translatorObserver__.observe(document.body, {
                             childList: true,
                             subtree: true,
                             characterData: true,
@@ -582,12 +629,10 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
                     function stopMutationObserver() {
                         console.log(`🛑 Stopping mutation observer`);
-                        observer.disconnect();
-                        // Clear any pending debounce timeout
-                        if (mutationTimeout) {
-                            console.log(`🧹 Clearing pending timeout during observer stop`);
-                            clearTimeout(mutationTimeout);
-                            mutationTimeout = null;
+                        try {
+                            window.__translatorObserver__.disconnect();
+                        } catch (e) {
+                            console.log('error stopping mutation observer');
                         }
                     }
 
