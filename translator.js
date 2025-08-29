@@ -131,6 +131,7 @@
 
 	function startMutationObserver() {
 		try {
+			console.log('Starting mutation observer');
 			mutationObserver.observe(document.body, {
 				childList: true,
 				subtree: true,
@@ -142,6 +143,7 @@
 
 	function stopMutationObserver() {
 		try {
+			console.log('Stopping mutation observer');
 			mutationObserver.disconnect();
 		} catch (e) {}
 		if (mutationDebounceTimeout) {
@@ -167,7 +169,6 @@
 		}
 		translatorRunning = true;
 		try {
-			addTranslationStyle();
 			await translateContents(document.documentElement);
 		} finally {
 			translatorRunning = false;
