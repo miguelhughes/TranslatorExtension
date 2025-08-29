@@ -60,6 +60,17 @@
         button:hover {
             background-color: #45a049;
         }
+        .btn-secondary {
+            background-color: #2196F3;
+        }
+        .btn-secondary:hover {
+            background-color: #1e88e5;
+        }
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
     </style>
     <script src="popup.js"></script>
 </head>
@@ -70,6 +81,9 @@
             <div class="toggle-slider"></div>
         </div>
     </div>
-    <button id="translate-button">Traducir</button>
+    <div class="buttons">
+        <button id="translate-delta">Traducir</button>
+        <button id="translate-full" class="btn-secondary">Traducir todo de nuevo</button>
+    </div>
 </body>
 </html>

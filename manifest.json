@@ -18,9 +18,8 @@
   },
   "content_scripts": [
     {
-      // "matches": ["https://*.brilliant.org/*"],
-      "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "matches": ["https://brilliant.org/*"],
+      "js": ["translator.js"]
     }
   ],
   "options_page": "options.html"
