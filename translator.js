@@ -19,6 +19,14 @@
 	let initialized = false;
 	let translatorRunning = false;
 
+	// Idle start tracking
+	let idleCheckTimeout = null;
+	let networkRequestsInFlight = 0;
+	let lastNetworkActivityMs = Date.now();
+	let lastDomActivityMs = Date.now();
+	let domActivityObserver = null;
+	let idleMonitorsInstalled = false;
+
 	function initializeTranslator() {
 		if (initialized) return;
 		initialized = true;
@@ -35,7 +43,7 @@
 			liveTranslationEnabled = result.liveTranslationEnabled !== false; // default true
 			console.log(`Live translation setting loaded: ${liveTranslationEnabled}`);
 			if (liveTranslationEnabled) {
-				startAutoTranslateForPage();
+				scheduleAutoTranslateWhenIdle();
 			}
 		});
 	}
@@ -70,7 +78,7 @@
 				case 'START_LIVE':
 					liveTranslationEnabled = true;
 					chrome.storage.sync.set({ liveTranslationEnabled: true });
-					startAutoTranslateForPage();
+					scheduleAutoTranslateWhenIdle();
 					sendResponse({ ok: true });
 					return false;
 				case 'STOP_LIVE':
@@ -92,7 +100,7 @@
 			if (Object.prototype.hasOwnProperty.call(changes, 'liveTranslationEnabled')) {
 				liveTranslationEnabled = changes.liveTranslationEnabled.newValue !== false;
 				if (liveTranslationEnabled) {
-					startAutoTranslateForPage();
+					scheduleAutoTranslateWhenIdle();
 				} else {
 					stopMutationObserver();
 				}
@@ -119,12 +127,12 @@
 			stopMutationObserver();
 			clearAllTranslatedMarkers(document.documentElement);
 			if (liveTranslationEnabled) {
-				startAutoTranslateForPage();
+				scheduleAutoTranslateWhenIdle();
 			}
 		});
 		window.addEventListener('pageshow', () => {
 			if (liveTranslationEnabled) {
-				startAutoTranslateForPage();
+				scheduleAutoTranslateWhenIdle();
 			}
 		});
 	}
@@ -667,6 +675,88 @@
 		});
 		const data = await response.json();
 		return data.choices[0].message.content;
+	}
+
+	function installIdleMonitors() {
+		if (idleMonitorsInstalled) return;
+		idleMonitorsInstalled = true;
+		try {
+			// Track DOM activity
+			domActivityObserver = new MutationObserver(() => {
+				lastDomActivityMs = Date.now();
+			});
+			try {
+				domActivityObserver.observe(document.documentElement, {
+					childList: true,
+					subtree: true,
+					characterData: true
+				});
+			} catch (e) {}
+
+			// Track fetch activity
+			const originalFetch = window.fetch;
+			if (typeof originalFetch === 'function') {
+				window.fetch = function () {
+					networkRequestsInFlight++;
+					lastNetworkActivityMs = Date.now();
+					try {
+						const p = originalFetch.apply(this, arguments);
+						return p.finally(() => {
+							networkRequestsInFlight = Math.max(0, networkRequestsInFlight - 1);
+							lastNetworkActivityMs = Date.now();
+						});
+					} catch (e) {
+						networkRequestsInFlight = Math.max(0, networkRequestsInFlight - 1);
+						lastNetworkActivityMs = Date.now();
+						throw e;
+					}
+				};
+			}
+
+			// Track XHR activity
+			const OriginalXHR = window.XMLHttpRequest;
+			if (OriginalXHR && OriginalXHR.prototype) {
+				const originalSend = OriginalXHR.prototype.send;
+				OriginalXHR.prototype.send = function () {
+					networkRequestsInFlight++;
+					lastNetworkActivityMs = Date.now();
+					this.addEventListener('loadend', () => {
+						networkRequestsInFlight = Math.max(0, networkRequestsInFlight - 1);
+						lastNetworkActivityMs = Date.now();
+					});
+					return originalSend.apply(this, arguments);
+				};
+			}
+		} catch (e) {}
+	}
+
+	//These functions and the above is to ensure that the page is idle before auto translation starts on load. They track when the last activity was, somewhat heuristics based. 
+	function scheduleAutoTranslateWhenIdle() {
+		installIdleMonitors();
+		if (idleCheckTimeout) {
+			clearTimeout(idleCheckTimeout);
+			idleCheckTimeout = null;
+		}
+		const checkIdleAndStart = () => {
+			if (!liveTranslationEnabled || loopGuardTripped) return;
+			if (translatorRunning) return;
+			if (document.readyState !== 'complete') {
+				window.addEventListener('load', () => {
+					scheduleAutoTranslateWhenIdle();
+				}, { once: true });
+				return;
+			}
+			const now = Date.now();
+			const networkIdle = networkRequestsInFlight === 0 && (now - lastNetworkActivityMs) >= 1000;
+			const domIdle = (now - lastDomActivityMs) >= 800;
+			if (networkIdle && domIdle) {
+				startAutoTranslateForPage();
+				idleCheckTimeout = null;
+			} else {
+				idleCheckTimeout = setTimeout(checkIdleAndStart, 250);
+			}
+		};
+		idleCheckTimeout = setTimeout(checkIdleAndStart, 0);
 	}
 
 	if (document.readyState === 'loading') {
