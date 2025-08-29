@@ -161,7 +161,10 @@
 	}
 
 	async function translateDelta() {
-		if (translatorRunning) return;
+		if (translatorRunning) {
+			console.log('Call to translateDelta skipped, translator already running.');
+			return;
+		}
 		translatorRunning = true;
 		try {
 			addTranslationStyle();
@@ -301,8 +304,6 @@
 		const style = window.getComputedStyle(node);
 		return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
 	}
-
-	// Batching removed; all translations are requested in a single call
 
 	async function translateTextMap(idToText) {
 		const messages = [
@@ -520,8 +521,8 @@
 		const currentCallId = mutationCallCount;
 		const timestamp = new Date().toISOString().split('T')[1]?.split('.')[0];
 		console.log(`🔍 [Translator] MUTATION CALL #${currentCallId} at ${timestamp}`);
-		console.log(`📝 [Translator] Received ${mutations.length} mutations:`);
-		console.log(`    ${describeMutations(mutations, currentCallId)}`);
+		// console.log(`📝 [Translator] Received ${mutations.length} mutations:`);
+		// console.log(`    ${describeMutations(mutations, currentCallId)}`);
 		if (mutationDebounceTimeout) {
 			clearTimeout(mutationDebounceTimeout);
 			mutationDebounceTimeout = null;
@@ -673,6 +674,3 @@
 		initializeTranslator();
 	}
 })();
-
-
-//https://brilliant.org/courses/logic-deduction/enter-the-code/order-ch-2/?from=icp_node&from_llp=logical-reasoning looks like images are being tranlated too much. might need some research but on the robots practice ordering it fires a lot
