@@ -21,6 +21,8 @@ image translation response: {
   "+": "+"
 }
 
+- en https://brilliant.org/courses/math-fundamentals/?from_llp=foundational-math, al navegar en los diferentes items, el cosito de "saltar adelante" no se traduce. parece uno de esos problemas de que se pierde el mutation.
+
 https://brilliant.org/courses/logic-deduction/enter-the-code/order-ch-2/?from=icp_node&from_llp=logical-reasoning looks like images are being tranlated too much. might need some research but on the robots practice ordering it fires a lot
 
 //cancel ongoing translations when navigating away from page. probar: ir a home y antes de que termine auto translation, ir a otro lado. queda traduciendo cosas que ya no hace falta.

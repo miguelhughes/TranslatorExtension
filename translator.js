@@ -51,7 +51,7 @@
 	function startAutoTranslateForPage() {
 		console.log('Auto-translate kickoff');
 		translateDelta().then(() => {
-			if (liveTranslationEnabled && !loopGuardTripped) {
+			if (liveTranslationEnabled) {
 				startMutationObserver();
 			}
 		});
@@ -76,6 +76,7 @@
 					translateDelta().then(() => sendResponse({ ok: true })).catch(err => sendResponse({ ok: false, error: err?.message }));
 					return true;
 				case 'START_LIVE':
+					resetLoopGuard();
 					liveTranslationEnabled = true;
 					chrome.storage.sync.set({ liveTranslationEnabled: true });
 					scheduleAutoTranslateWhenIdle();
@@ -546,10 +547,14 @@
 		stopMutationObserver();
 		const nowMs = Date.now();
 		translationRunTimestamps.push(nowMs);
-		translationRunTimestamps = translationRunTimestamps.filter(ts => ts > nowMs - LOOP_GUARD_WINDOW_MS);
+		translationRunTimestamps = translationRunTimestamps.filter(ts => ts > nowMs - LOOP_GUARD_WINDOW_MS); //container of the past timestamps. by filtering, we know which items are inside the allowed window; then it's just a matter of counting. 
 		if (translationRunTimestamps.length > LOOP_GUARD_MAX_RUNS) {
 			console.warn('[Translator] Loop safeguard triggered; stopping live translation');
 			loopGuardTripped = true;
+			//turn off auto translation, to reflect the state in the UI. And also it can be turned back on. otherwise it's off but user can't see why unless the page is reloaded.
+			liveTranslationEnabled = false;
+			chrome.storage.sync.set({ liveTranslationEnabled: false });
+			stopMutationObserver();
 			return;
 		}
 		for (let mutation of mutations) {
