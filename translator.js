@@ -1,4 +1,4 @@
-// Content script: core translator with persistent auto-translate, full/delta modes, and batching
+// Content script: core translator with persistent auto-translate and full/delta modes
 (() => {
 	// Prevent duplicate initialization if re-injected
 	if (window.__translatorContentInitialized) return;
@@ -207,7 +207,7 @@
 
 			let translatedMap = {};
 			if (Object.keys(idToTextRequest).length > 0) {
-				translatedMap = await translateTextMapBatched(idToTextRequest);
+				translatedMap = await translateTextMap(idToTextRequest);
 			}
 			else {
 				console.log('No strings to translate, skipping');
@@ -302,43 +302,7 @@
 		return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
 	}
 
-	async function translateTextMapBatched(idToText) {
-		const entries = Object.entries(idToText);
-		const batches = [];
-		let currentBatch = [];
-		let currentChars = 0;
-		for (const [id, text] of entries) {
-			const textLen = (text || '').length;
-			const wouldExceedChars = currentChars + textLen > MAX_CHARS_PER_BATCH;
-			const wouldExceedItems = currentBatch.length + 1 > MAX_ITEMS_PER_BATCH;
-			if (currentBatch.length > 0 && (wouldExceedChars || wouldExceedItems)) {
-				batches.push(currentBatch);
-				currentBatch = [];
-				currentChars = 0;
-			}
-			currentBatch.push([id, text]);
-			currentChars += textLen;
-		}
-		if (currentBatch.length > 0) {
-			batches.push(currentBatch);
-		}
-
-		batches.forEach((b, i) => {
-			const chars = b.reduce((sum, [, t]) => sum + (t ? t.length : 0), 0);
-			console.log(` - Batch ${i + 1}: items=${b.length}, chars=${chars}`);
-		});
-
-		const results = {};
-		for (const batch of batches) {
-			const map = {};
-			for (const [id, text] of batch) {
-				map[id] = text;
-			}
-			const translated = await translateTextMap(map);
-			Object.assign(results, translated);
-		}
-		return results;
-	}
+	// Batching removed; all translations are requested in a single call
 
 	async function translateTextMap(idToText) {
 		const messages = [
@@ -415,6 +379,9 @@
 	}
 
 	async function extractAndTranslateTextFromImage(imageUrl) {
+	//TODO: on https://brilliant.org/home/ , image translation fires too much due to having too many images, ends up triggering "too many requests" error on api side. we should add a size detection to the image and if it's too big, we should not translate it. Other heuristics based purely on the normal content of brilliant itself could also be added, such as skipping badges. 
+	//TODO: add caches for images too, based on the url.
+
 		console.log('extracting and translating text from image ' + imageUrl);
 		const messages = [
 			{
