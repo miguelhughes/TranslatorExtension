@@ -424,7 +424,7 @@
 		const messages = [
 			{
 				role: "system",
-				content: "You will be provided with a JSON object whose keys are string IDs and values are English sentences from a website. Translate the values into Spanish and return a JSON object preserving the exact same keys and structure. Do not add, remove, or reorder keys.",
+				content: "You will be provided with a JSON object whose values are extracts from a website in english. Translate the values into Spanish considering all the values as context, and return a JSON object preserving the exact same keys and structure. Do not add, remove, or reorder keys.",
 			},
 			{
 				role: "user",

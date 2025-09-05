@@ -2,6 +2,8 @@
 
 - Tamaño mínimo para imágenes 
 
+- exclusión de counter leechblock, lo excluye pero igual aparentemente rompe el monitoring y se pierden varios mutations
+
 - hay items que estan mas de una vez en el request, por ejemplo en el de los de las funciones, x se pide varias veces e y también.
 
 {
