@@ -57,6 +57,11 @@
             <textarea id="excluded-selectors" rows="4" style="width: 100%;" placeholder="e.g. .leechblock-timer, [data-no-translate]\n.one-clock, #ads"></textarea>
             <small>Elements matching any selector here will be ignored when their contents change. (not auto translated)</small>
         </div>
+        <div class="form-group">
+            <label for="excluded-text-regexes">Excluded text patterns (regex; one per line or comma):</label>
+            <textarea id="excluded-text-regexes" rows="5" style="width: 100%;" placeholder="Examples:\n/^[+-]?(?:\\d+|\\d{1,3}(?:[.,]\\d{3})+)(?:[.,]\\d+)?$/\n/^[\\p{S}\\p{P}]+$/u   (one or more symbols/punctuation)"></textarea>
+            <small>Strings matching any pattern here will be skipped from translation. Patterns accept plain syntax or /pattern/flags. <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Cheatsheet" target="_blank" rel="noopener noreferrer">Regex cheatsheet</a></small>
+        </div>
         <div id="status" class="status"></div>
         <button id="save">Save</button>
     </div>

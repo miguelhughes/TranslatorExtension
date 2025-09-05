@@ -1,28 +1,27 @@
 - cancel ongoing translations when navigating away from page. probar: ir a home y antes de que termine auto translation, ir a otro lado. queda traduciendo cosas que ya no hace falta.
 
-- we need to add some heuristics skipping. numbers only should be skipped. single letters too:
-image translation response: {
-  "4": "4",
-  "2": "2",
-  "14": "14",
-  "12": "12",
-  "5": "5",
-  "13": "13",
-  "6": "6",
-  "11": "11",
-  "1": "1",
-  "8": "8",
-  "3": "3",
-  "10": "10"
-}
-image translation response: {
-  "x": "x",
-  "<": "<",
-  "~": "~",
-  "+": "+"
-}
 - Tamaño mínimo para imágenes 
-- Hay algunas cosas que ir no traduce bien (en el de los dados y par impar),
+
+- hay items que estan mas de una vez en el request, por ejemplo en el de los de las funciones, x se pide varias veces e y también.
+
+{
+	"0":"¿Qué es ",
+	"1":"​",
+	"2":"y",
+	"3":"y",
+	"4":"y",
+	"5":"y",
+	"6":"x",
+	"7":"x",
+	"8":"x",
+	"9":"x",
+	"10":"y",
+	"11":"x",
+	"12":"y",
+	"13":"x",
+}'
+
+- Hay algunas cosas que ir no traduce bien (en el de los dados y par impar). me parece que es cuando cambió el prompt. la más clásica es "práctica completado!", al terminar practice...
 
 - it'd be nice that if there's a failure on the api side, the styles are removed. maybe even add a red fadout or smth. on errors also the green style should be removed. it looks like it¡s translating but it actually failed. for exapmle, api too many requests or incorrect key.
 

@@ -22,6 +22,10 @@
 	// User-configured CSS selectors to exclude from monitoring/translation
 	let excludedSelectors = [];
 
+	// User-configured text exclusion patterns (regular expressions)
+	let excludedTextRegexStrings = [];
+	let excludedTextRegexes = [];
+
 	// Idle start tracking
 	let idleCheckTimeout = null;
 	let networkRequestsInFlight = 0;
@@ -42,7 +46,7 @@
 		wireMessageHandlers();
 		wireStorageHandlers();
 
-		chrome.storage.sync.get(['liveTranslationEnabled', 'excludedSelectors'], (result) => {
+		chrome.storage.sync.get(['liveTranslationEnabled', 'excludedSelectors', 'excludedTextRegexes'], (result) => {
 			liveTranslationEnabled = result.liveTranslationEnabled !== false; // default true
 			if (Array.isArray(result.excludedSelectors)) {
 				excludedSelectors = result.excludedSelectors;
@@ -51,10 +55,29 @@
 				excludedSelectors = ['div.leechblock-timer'];
 				try { chrome.storage.sync.set({ excludedSelectors }); } catch (e) {}
 			}
+
+			// Load or initialize excluded text regexes
+			if (Array.isArray(result.excludedTextRegexes)) {
+				excludedTextRegexStrings = result.excludedTextRegexes;
+			} else {
+				// Pre-populate with sensible defaults:
+				// - numbers (integers/decimals/thousand separators)
+				// - one or more symbols/punctuation (Unicode-aware)
+				excludedTextRegexStrings = [
+					'^[+-]?(?:\\d+|\\d{1,3}(?:[.,]\\d{3})+)(?:[.,]\\d+)?$',
+					'/^[\\p{S}\\p{P}]+$/u'
+				];
+				try { chrome.storage.sync.set({ excludedTextRegexes: excludedTextRegexStrings }); } catch (e) {}
+			}
+			compileExcludedTextRegexes();
 			console.log(`Live translation setting loaded: ${liveTranslationEnabled}`);
 			console.log(`Excluded selectors loaded: ${excludedSelectors.length}`);
 			for (const selector of excludedSelectors) {
 				console.log(`  - ${selector}`);
+			}
+			console.log(`Excluded text regexes loaded: ${excludedTextRegexStrings.length}`);
+			for (const r of excludedTextRegexStrings) {
+				console.log(`  ~ ${r}`);
 			}
 			if (liveTranslationEnabled) {
 				scheduleAutoTranslateWhenIdle();
@@ -127,7 +150,66 @@
 					console.log(`  - ${selector}`);
 				}
 			}
+			if (Object.prototype.hasOwnProperty.call(changes, 'excludedTextRegexes')) {
+				excludedTextRegexStrings = Array.isArray(changes.excludedTextRegexes.newValue) ? changes.excludedTextRegexes.newValue : [];
+				compileExcludedTextRegexes();
+				console.log(`Excluded text regexes updated: ${excludedTextRegexStrings.length}`);
+				for (const r of excludedTextRegexStrings) {
+					console.log(`  ~ ${r}`);
+				}
+			}
 		});
+	}
+
+	function compileExcludedTextRegexes() {
+		excludedTextRegexes = [];
+		for (const raw of excludedTextRegexStrings || []) {
+			const compiled = parseRegexString(raw);
+			if (compiled) {
+				excludedTextRegexes.push(compiled);
+			}
+		}
+	}
+
+	function parseRegexString(raw) {
+		if (typeof raw !== 'string') return null;
+		const trimmed = raw.trim();
+		if (!trimmed) return null;
+		// Support both plain patterns and /pattern/flags syntax
+		if (trimmed.startsWith('/') && trimmed.lastIndexOf('/') > 0) {
+			const lastSlash = trimmed.lastIndexOf('/');
+			const pattern = trimmed.slice(1, lastSlash);
+			const flags = trimmed.slice(lastSlash + 1);
+			try {
+				return new RegExp(pattern, flags);
+			} catch (e) {
+				console.warn(`[Translator] Invalid regex pattern ignored: ${trimmed}. Error: ${e?.message}`);
+				return null;
+			}
+		}
+		try {
+			return new RegExp(trimmed);
+		} catch (e) {
+			console.warn(`[Translator] Invalid regex pattern ignored: ${trimmed}. Error: ${e?.message}`);
+			return null;
+		}
+	}
+
+	function shouldExcludeText(text) {
+		if (!excludedTextRegexes || excludedTextRegexes.length === 0) return false;
+		for (const rx of excludedTextRegexes) {
+			try {
+				if (rx.test(text))
+				{
+					console.log(`[Translator] Text '${text}' will be excluded as it matches regex '${rx}'`);
+					return true;
+				}
+			} catch (e) {
+				// If a regex becomes faulty at runtime, warn and continue
+				console.warn(`[Translator] Error testing regex '${rx}': ${e?.message}`);
+			}
+		}
+		return false;
 	}
 
 	function wireUrlChangeDetection() {
@@ -277,7 +359,8 @@
 		}
 		if (node.nodeType === Node.TEXT_NODE) {
 			const text = node.textContent;
-			if (text.trim() !== '' && /[A-Za-z]/.test(text)) {
+			const trimmed = text.trim();
+			if (trimmed !== '' && !shouldExcludeText(trimmed)) {
 				nodeAction(node, text, index);
 				index++;
 			}
@@ -305,7 +388,8 @@
 								if (parentElement && (!isNodeVisible(parentElement) || parentElement.hasAttribute('data-translated'))) {
 									return NodeFilter.FILTER_REJECT;
 								}
-								return node.textContent.trim() !== '' && /[A-Za-z]/.test(node.textContent)
+								const t = node.textContent.trim();
+								return t !== '' && !shouldExcludeText(t)
 									? NodeFilter.FILTER_ACCEPT
 									: NodeFilter.FILTER_REJECT;
 							}
