@@ -19,6 +19,9 @@
 	let initialized = false;
 	let translatorRunning = false;
 
+	// User-configured CSS selectors to exclude from monitoring/translation
+	let excludedSelectors = [];
+
 	// Idle start tracking
 	let idleCheckTimeout = null;
 	let networkRequestsInFlight = 0;
@@ -39,9 +42,20 @@
 		wireMessageHandlers();
 		wireStorageHandlers();
 
-		chrome.storage.sync.get(['liveTranslationEnabled'], (result) => {
+		chrome.storage.sync.get(['liveTranslationEnabled', 'excludedSelectors'], (result) => {
 			liveTranslationEnabled = result.liveTranslationEnabled !== false; // default true
+			if (Array.isArray(result.excludedSelectors)) {
+				excludedSelectors = result.excludedSelectors;
+			} else {
+				//add by default items that are known to trigger too many mutations
+				excludedSelectors = ['div.leechblock-timer'];
+				try { chrome.storage.sync.set({ excludedSelectors }); } catch (e) {}
+			}
 			console.log(`Live translation setting loaded: ${liveTranslationEnabled}`);
+			console.log(`Excluded selectors loaded: ${excludedSelectors.length}`);
+			for (const selector of excludedSelectors) {
+				console.log(`  - ${selector}`);
+			}
 			if (liveTranslationEnabled) {
 				scheduleAutoTranslateWhenIdle();
 			}
@@ -104,6 +118,13 @@
 					scheduleAutoTranslateWhenIdle();
 				} else {
 					stopMutationObserver();
+				}
+			}
+			if (Object.prototype.hasOwnProperty.call(changes, 'excludedSelectors')) {
+				excludedSelectors = changes.excludedSelectors.newValue || [];
+				console.log(`Excluded selectors updated: ${excludedSelectors.length}`);
+				for (const selector of excludedSelectors) {
+					console.log(`  - ${selector}`);
 				}
 			}
 		});
@@ -530,7 +551,7 @@
 		mutationCallCount++;
 		const currentCallId = mutationCallCount;
 		const timestamp = new Date().toISOString().split('T')[1]?.split('.')[0];
-		console.log(`🔍 [Translator] MUTATION CALL #${currentCallId} at ${timestamp}`);
+		// console.log(`🔍 [Translator] MUTATION CALL #${currentCallId} at ${timestamp}`);
 		// console.log(`📝 [Translator] Received ${mutations.length} mutations:`);
 		// console.log(`    ${describeMutations(mutations, currentCallId)}`);
 		if (mutationDebounceTimeout) {
@@ -538,9 +559,73 @@
 			mutationDebounceTimeout = null;
 		}
 		mutationDebounceTimeout = setTimeout(async () => {
-			await performDebouncedTranslation(mutations);
+			const filtered = filterMutationsByExclusions(mutations);
+			if (filtered.length === 0) {
+				mutationDebounceTimeout = null;
+				return;
+			}
+			await performDebouncedTranslation(filtered);
 			mutationDebounceTimeout = null;
 		}, MUTATION_DEBOUNCE_DELAY);
+	}
+
+	function elementMatchesAnySelector(el, selectors) {
+		if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+		for (const sel of selectors || []) {
+			try {
+				if (sel && el.matches(sel)) return true;
+			} catch (e) {}
+		}
+		return false;
+	}
+
+	function isInsideExcludedElement(node) {
+		if (!excludedSelectors || excludedSelectors.length === 0)
+			 return false;
+		const el = (node && node.nodeType === Node.ELEMENT_NODE) ? node : node?.parentElement;
+		if (!el)
+			 return false;
+		
+		let match = false;
+		if (elementMatchesAnySelector(el, excludedSelectors))
+		{
+			match = true;
+		}
+		else {
+			const parent = el.parentElement;
+			if (parent) {
+				match = elementMatchesAnySelector(parent, excludedSelectors);
+			}
+		}
+
+		// if (match) {
+		//  //diagnostigs of skipped mutation
+		// 	console.log(`[Translator] Element ${el.tagName} matches an item in the mutation exclude list.`);
+		// }
+		return match;
+	}
+
+	function filterMutationsByExclusions(mutations) {
+		if (!excludedSelectors || excludedSelectors.length === 0) return mutations;
+		const kept = [];
+		for (const m of mutations) {
+			const target = m.target;
+			if (isInsideExcludedElement(target)) continue;
+			if (m.type === 'childList') {
+				let anyRelevant = false;
+				for (const n of m.addedNodes) {
+					if (!isInsideExcludedElement(n)) { anyRelevant = true; break; }
+				}
+				if (!anyRelevant) {
+					for (const n of m.removedNodes) {
+						if (!isInsideExcludedElement(n)) { anyRelevant = true; break; }
+					}
+				}
+				if (!anyRelevant) continue;
+			}
+			kept.push(m);
+		}
+		return kept;
 	}
 
 	async function performDebouncedTranslation(mutations) {
