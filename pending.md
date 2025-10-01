@@ -1,8 +1,8 @@
-- cancel ongoing translations when navigating away from page. probar: ir a home y antes de que termine auto translation, ir a otro lado. queda traduciendo cosas que ya no hace falta.
-
 - Tamaño mínimo para imágenes 
 
 - exclusión de counter leechblock, lo excluye pero igual aparentemente rompe el monitoring y se pierden varios mutations
+
+- Aparentemente, cuando se navega entre inicio y curses, la calle por alguna razón no funciona. Yo esperaría que una vez que se cargue un inicio, cuando te vas a curses y después vas a inicio, tendría que traducir todo inmediatamente. y cuando vas a curses por segunda vez, tendría que traducir todo inmediatamente. Sin embargo, no lo hace. Tal vez sea por las imágenes, no se. si se desactiva la traducción de imágenes esto no sucede asi que aparentemente es por las imágenes.
 
 - hay items que estan mas de una vez en el request, por ejemplo en el de los de las funciones, x se pide varias veces e y también.
 

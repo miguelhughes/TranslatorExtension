@@ -18,6 +18,7 @@
 	let liveTranslationEnabled = true;
 	let initialized = false;
 	let translatorRunning = false;
+	let translationAbortController = null;
 
 	// User-configured CSS selectors to exclude from monitoring/translation
 	let excludedSelectors = [];
@@ -33,6 +34,10 @@
 	let lastDomActivityMs = Date.now();
 	let domActivityObserver = null;
 	let idleMonitorsInstalled = false;
+
+	// URL change detection
+	let lastKnownUrl = location.href;
+	let urlPollIntervalId = null;
 
 	function initializeTranslator() {
 		if (initialized) return;
@@ -213,20 +218,52 @@
 	}
 
 	function wireUrlChangeDetection() {
-		const dispatchLocationChange = () => window.dispatchEvent(new Event('locationchange'));
+		const triggerLocationChangeIfUrlDiffers = (reason) => {
+			try {
+				const href = location.href;
+				if (href !== lastKnownUrl) {
+					lastKnownUrl = href;
+					console.log('Location change detected' + (reason ? ` via ${reason}` : ''));
+					window.dispatchEvent(new Event('locationchange'));
+				}
+			} catch (e) {}
+		};
+
+		// Patch history methods (common SPA navigation)
 		const originalPushState = history.pushState;
 		history.pushState = function () {
-			originalPushState.apply(this, arguments);
-			dispatchLocationChange();
+			try { originalPushState.apply(this, arguments); } finally { triggerLocationChangeIfUrlDiffers('pushState'); }
 		};
 		const originalReplaceState = history.replaceState;
 		history.replaceState = function () {
-			originalReplaceState.apply(this, arguments);
-			dispatchLocationChange();
+			try { originalReplaceState.apply(this, arguments); } finally { triggerLocationChangeIfUrlDiffers('replaceState'); }
 		};
-		window.addEventListener('popstate', dispatchLocationChange);
-		window.addEventListener('hashchange', dispatchLocationChange);
+
+		// Back/forward or hash updates
+		window.addEventListener('popstate', () => triggerLocationChangeIfUrlDiffers('popstate'));
+		window.addEventListener('hashchange', () => triggerLocationChangeIfUrlDiffers('hashchange'));
+
+		// New Navigation API (if available)
+		try {
+			if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+				window.navigation.addEventListener('navigate', () => triggerLocationChangeIfUrlDiffers('navigation-api'));
+			}
+		} catch (e) {}
+
+		// Heuristic: after any click, check on next tick
+		document.addEventListener('click', () => {
+			setTimeout(() => triggerLocationChangeIfUrlDiffers('click'), 0);
+		}, true);
+
+		// Polling fallback to catch frameworks that cached original history methods
+		if (urlPollIntervalId) clearInterval(urlPollIntervalId);
+		urlPollIntervalId = setInterval(() => triggerLocationChangeIfUrlDiffers('poll'), 300);
+
 		window.addEventListener('locationchange', () => {
+			if (translationAbortController) {
+				translationAbortController.abort();
+				console.log('Aborted ongoing translation due to navigation');
+			}
 			resetLoopGuard();
 			stopMutationObserver();
 			clearAllTranslatedMarkers(document.documentElement);
@@ -234,7 +271,10 @@
 				scheduleAutoTranslateWhenIdle();
 			}
 		});
+
 		window.addEventListener('pageshow', () => {
+			// Re-evaluate URL and kick auto-translate when coming back from bfcache
+			lastKnownUrl = location.href;
 			if (liveTranslationEnabled) {
 				scheduleAutoTranslateWhenIdle();
 			}
@@ -280,14 +320,23 @@
 			return;
 		}
 		translatorRunning = true;
+		translationAbortController = new AbortController();
+		const signal = translationAbortController.signal;
 		try {
-			await translateContents(document.documentElement);
+			await translateContents(document.documentElement, signal);
+		} catch (err) {
+			if (err.name === 'AbortError') {
+				console.log('Translation was aborted');
+			} else {
+				throw err;
+			}
 		} finally {
 			translatorRunning = false;
+			translationAbortController = null;
 		}
 	}
 
-	async function translateContents(nodeToTranslate) {
+	async function translateContents(nodeToTranslate, signal) {
 		try {
 			const snapshotItems = [];
 			traverseNode(nodeToTranslate, (node, text, index) => {
@@ -323,7 +372,7 @@
 
 			let translatedMap = {};
 			if (Object.keys(idToTextRequest).length > 0) {
-				translatedMap = await translateTextMap(idToTextRequest);
+				translatedMap = await translateTextMap(idToTextRequest, signal);
 			}
 			else {
 				console.log('No strings to translate, skipping');
@@ -347,9 +396,13 @@
 				}
 			}
 
-			handleImages(nodeToTranslate);
+			handleImages(nodeToTranslate, signal);
 		} catch (err) {
-			console.error('translateContents error:', err);
+			if (err.name === 'AbortError') {
+				console.log('translateContents aborted');
+			} else {
+				console.error('translateContents error:', err);
+			}
 		}
 	}
 
@@ -420,7 +473,7 @@
 		return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
 	}
 
-	async function translateTextMap(idToText) {
+	async function translateTextMap(idToText, signal) {
 		const messages = [
 			{
 				role: "system",
@@ -431,7 +484,7 @@
 				content: JSON.stringify(idToText),
 			}
 		];
-		const content = await callOpenAI(messages, true);
+		const content = await callOpenAI(messages, true, signal);
 		console.log(`translated result: '${content}'`);
 		try {
 			return JSON.parse(content);
@@ -463,10 +516,21 @@
 		});
 	}
 
-	async function handleImages(node) {
+	async function handleImages(node, signal) {
 		console.log('Handling images');
 		const images = Array.from(node.querySelectorAll('img')).reverse();
 		for (let img of images) {
+			// Check if aborted at the start of each image iteration
+			if (signal.aborted) {
+				console.log('Image handling cancelled');
+				return;
+			}
+
+			if (!img.isConnected) {
+				console.log('Image is not connected, skipping');
+				continue;
+			}
+
 			if (!img.hasAttribute('data-translated')) {
 				img.classList.add('translating');
 				let success;
@@ -479,12 +543,16 @@
 							continue;
 						}
 					}
-					const imageTexts = await extractAndTranslateTextFromImage(imageUrl);
+					const imageTexts = await extractAndTranslateTextFromImage(imageUrl, signal);
 					if (imageTexts && Object.keys(imageTexts).length > 0) {
 						createImageTooltip(img, imageTexts);
 					}
 					success = true;
 				} catch (error) {
+					if (error.name === 'AbortError') {
+						console.log('Image translation aborted');
+						return;
+					}
 					success = false;
 				}
 				img.setAttribute('data-translated', success ? 'true' : 'false');
@@ -494,7 +562,7 @@
 		console.log('Images handled');
 	}
 
-	async function extractAndTranslateTextFromImage(imageUrl) {
+	async function extractAndTranslateTextFromImage(imageUrl, signal) {
 	//TODO: on https://brilliant.org/home/ , image translation fires too much due to having too many images, ends up triggering "too many requests" error on api side. we should add a size detection to the image and if it's too big, we should not translate it. Other heuristics based purely on the normal content of brilliant itself could also be added, such as skipping badges. 
 	//TODO: add caches for images too, based on the url.
 
@@ -508,7 +576,7 @@
 				]
 			}
 		];
-		const content = await callOpenAI(messages, true);
+		const content = await callOpenAI(messages, true, signal);
 		console.log('image translation response: ' + content);
 		const responseJson = JSON.parse(content);
 		return responseJson;
@@ -632,6 +700,16 @@
 	}
 
 	async function handleMutationWithDebouncing(mutations) {
+		// If URL changed but our history hooks missed it, treat as navigation
+		try {
+			const currentHref = location.href;
+			if (currentHref !== lastKnownUrl) {
+				// This will update lastKnownUrl internally and fire the handler
+				window.dispatchEvent(new Event('locationchange'));
+				lastKnownUrl = currentHref;
+				return;
+			}
+		} catch (e) {}
 		mutationCallCount++;
 		const currentCallId = mutationCallCount;
 		const timestamp = new Date().toISOString().split('T')[1]?.split('.')[0];
@@ -734,7 +812,7 @@
 				}
 			}
 		}
-		await translateContents(document.documentElement);
+		await translateDelta();
 		if (!loopGuardTripped) {
 			startMutationObserver();
 		}
@@ -819,7 +897,7 @@
 		addStyleToShadowRoot(document.documentElement);
 	}
 
-	async function callOpenAI(messages, jsonResponse = false) {
+	async function callOpenAI(messages, jsonResponse = false, signal = null) {
 		const apiKey = await new Promise((resolve) => {
 			chrome.storage.sync.get(['openAiApiKey'], (result) => {
 				resolve(result.openAiApiKey);
@@ -846,6 +924,7 @@
 				frequency_penalty: 0,
 				...(jsonResponse && { response_format: { type: "json_object" } })
 			}),
+			...(signal && { signal })
 		});
 		const data = await response.json();
 		return data.choices[0].message.content;
